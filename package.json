@@ -1,0 +1,1 @@
+{"name":"underfoot-ant-colony","version":"0.2.0","private":true,"description":"Local browser runtime for the Underfoot ant colony game. npm start serves the game; npm test validates simulation behavior.","scripts":{"start":"node server.cjs","test":"node tests/simulation.test.cjs"}}
