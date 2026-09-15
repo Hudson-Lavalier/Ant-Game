@@ -80,9 +80,113 @@ class World{
  // FOUNDING LAYOUT: every placement is deterministic for this world seed, but changes for a new seed.
  foundingLayout(){const h=hash(this.seed,731,-419),dirs=[{x:1,y:0},{x:1,y:-1},{x:0,y:-1},{x:-1,y:0},{x:-1,y:1},{x:0,y:1}],nest={x:-8+(h%4),y:((h>>>5)%3)-1},direction=dirs[(h>>>10)%dirs.length],distance=11+((h>>>13)%7),spoil={x:nest.x+direction.x*distance,y:nest.y+direction.y*distance},holeDirection=dirs[(h>>>19)%dirs.length],holeDistance=(h>>>22)%3,hole={x:spoil.x+holeDirection.x*holeDistance,y:spoil.y+holeDirection.y*holeDistance},foodIdx=(h>>>17)%dirs.length,foodDirection=dirs[foodIdx],waterDirection=dirs[(foodIdx+3)%dirs.length];return{nest,spoil,spoilHole:hole,foodStore:{x:nest.x+foodDirection.x*2,y:nest.y+foodDirection.y*2},waterStore:{x:nest.x+waterDirection.x*2,y:nest.y+waterDirection.y*2}};}
  // FOUNDING PASSAGE: the changing nest-to-hole route remains connected from the first frame.
- found(){const nest=this.founding.nest,spoil=this.founding.spoil;for(const p of hexDisk(nest.x,nest.y,6))this.open(p.x,p.y,'nest',true);for(const p of hexDisk(spoil.x,spoil.y,3))this.open(p.x,p.y,'spoil',true);this.open(this.pit.x,this.pit.y,'pit',true);let x=nest.x,y=nest.y;while(x!==this.pit.x||y!==this.pit.y){if(x!==this.pit.x)x+=Math.sign(this.pit.x-x);else y+=Math.sign(this.pit.y-y);for(const p of hexDisk(x,y,1))if(p.x!==this.pit.x||p.y!==this.pit.y)this.open(p.x,p.y,'passage',true);}}
+ found(){
+  const nest=this.founding.nest,spoil=this.founding.spoil;
+  for(const p of hexDisk(nest.x,nest.y,6))this.open(p.x,p.y,'nest',true);
+  for(const p of hexDisk(spoil.x,spoil.y,3))this.open(p.x,p.y,'spoil',true);
+  this.open(this.pit.x,this.pit.y,'pit',true);
+  let x=nest.x,y=nest.y;
+  while(x!==this.pit.x||y!==this.pit.y){
+   if(x!==this.pit.x)x+=Math.sign(this.pit.x-x);else y+=Math.sign(this.pit.y-y);
+   for(const p of hexDisk(x,y,1))if(p.x!==this.pit.x||p.y!==this.pit.y)this.open(p.x,p.y,'passage',true);
+  }
+   // Procedural Starter Hatchery: 5 floor tiles + 3-tile wide entrance into nest,
+   // varying in spawn position around the nest perimeter, alcove orientation, and floor shape.
+   const hHash = hash(this.seed, 953, 617);
+   const rotateHex = (p, turns) => {
+    let q = p.x, r = p.y;
+    for (let i = 0; i < (((turns % 6) + 6) % 6); i++) {
+     const nq = -r, nr = q + r;
+     q = nq; r = nr;
+    }
+    return { x: q, y: r };
+   };
+   const front = [{ x: 0, y: 0 }, { x: 0, y: -1 }, { x: 0, y: -2 }];
+   const entr = [{ x: 1, y: 0 }, { x: 1, y: -1 }, { x: 1, y: -2 }];
+   const backVariants = [
+    [{ x: -1, y: 0 }, { x: -1, y: -1 }],
+    [{ x: -1, y: -1 }, { x: -1, y: -2 }],
+    [{ x: -1, y: 0 }, { x: -1, y: -2 }]
+   ];
+   const variant = Math.abs(hHash % backVariants.length);
+   const startRot = Math.abs((hHash >>> 5) % 6);
+   const reserved = [this.founding?.foodStore, this.founding?.waterStore, this.founding?.spoil, this.pit, nest].filter(Boolean);
+   let chosen = null;
+   for (let step = 0; step < 6; step++) {
+    const rot = (startRot + step) % 6;
+    const dirVector = rotateHex({ x: 1, y: 0 }, rot);
+    const anchor = { x: nest.x - dirVector.x * 4, y: nest.y - dirVector.y * 4 };
+    const hFloor = front.concat(backVariants[variant]).map(p => {
+     const rp = rotateHex(p, rot);
+     return { x: anchor.x + rp.x, y: anchor.y + rp.y };
+    });
+    const hEntrances = entr.map(p => {
+     const rp = rotateHex(p, rot);
+     return { x: anchor.x + rp.x, y: anchor.y + rp.y };
+    });
+    const floorKeys = new Set(hFloor.map(p => key(p.x, p.y)));
+    const entrKeys = new Set(hEntrances.map(p => key(p.x, p.y)));
+    const hWalls = [];
+    for (const f of hFloor) {
+     for (const [dq, dr] of DIRS) {
+      const nx = f.x + dq, ny = f.y + dr, nk = key(nx, ny);
+      if (!floorKeys.has(nk) && !entrKeys.has(nk)) hWalls.push({ x: nx, y: ny });
+     }
+    }
+    const allHatchery = hFloor.concat(hEntrances).concat(hWalls);
+    const collides = allHatchery.some(pt => {
+     const c = this.peek(pt.x, pt.y);
+     if (c && (c.zone === 'passage' || c.zone === 'spoil' || c.zone === 'pit')) return true;
+     if (this.founding?.foodStore && Math.abs(this.founding.foodStore.x - pt.x) <= 1 && Math.abs(this.founding.foodStore.y - pt.y) <= 1) return true;
+     if (this.founding?.waterStore && Math.abs(this.founding.waterStore.x - pt.x) <= 1 && Math.abs(this.founding.waterStore.y - pt.y) <= 1) return true;
+     if (pt.x === nest.x && pt.y === nest.y) return true;
+     return false;
+    });
+    if (!collides) {
+     chosen = { hFloor, hEntrances };
+     break;
+    }
+   }
+   if (!chosen) {
+    const rot = startRot;
+    const dirVector = rotateHex({ x: 1, y: 0 }, rot);
+    const anchor = { x: nest.x - dirVector.x * 4, y: nest.y - dirVector.y * 4 };
+    chosen = {
+     hFloor: front.concat(backVariants[variant]).map(p => {
+      const rp = rotateHex(p, rot);
+      return { x: anchor.x + rp.x, y: anchor.y + rp.y };
+     }),
+     hEntrances: entr.map(p => {
+      const rp = rotateHex(p, rot);
+      return { x: anchor.x + rp.x, y: anchor.y + rp.y };
+     })
+    };
+   }
+   const hFloor = chosen.hFloor;
+   const entrances = chosen.hEntrances;
+   for (const f of hFloor) {
+    const c = this.get(f.x, f.y);
+    c.solid = false; c.zone = 'hatchery-floor'; c.structure = 'hatchery_floor'; c.discovered = true;
+   }
+   const compKeys = new Set(hFloor.map(p => key(p.x, p.y)));
+   const entranceKeys = new Set(entrances.map(p => key(p.x, p.y)));
+   for (const e of entrances) this.open(e.x, e.y, 'nest', true);
+   for (const f of hFloor) {
+    for (const [dq, dr] of DIRS) {
+     const nx = f.x + dq, ny = f.y + dr, nk = key(nx, ny);
+     if (!compKeys.has(nk) && !entranceKeys.has(nk)) {
+      const wc = this.get(nx, ny);
+      wc.solid = true; wc.zone = 'hatchery-wall'; wc.structure = 'hatchery_wall'; wc.discovered = true;
+     }
+    }
+   }
+ }
+  getHatcheries(){
+   if(AntGame.Brood?.getHatcheries)return AntGame.Brood.getHatcheries(this);
+   return [];
+  }
  neighbors(x,y){return DIRS.map(([dq,dr])=>this.peek(x+dq,y+dr)).filter(Boolean);}
- faces(c,known=true){return this.neighbors(c.x,c.y).filter(n=>!n.solid&&n.water<6&&!n.isWell&&n.zone!=='well'&&(!known||n.discovered));}
+ faces(c,known=true){return this.neighbors(c.x,c.y).filter(n=>!n.solid&&n.water<6&&!n.waterStorage&&!n.isWell&&n.zone!=='well'&&(!known||n.discovered));}
  senseAt(x,y,r=C.revealRadius){for(const p of hexDisk(Math.round(x),Math.round(y),r)){const c=this.get(p.x,p.y);c.discovered=true;if(c.water>0)this.activeWater.add(key(c.x,c.y));if(c.zone==='pit'&&!this.pits.some(h=>h.x===c.x&&h.y===c.y))this.pits.push({x:c.x,y:c.y,used:0,capacity:C.spoilCapacity,hole:true});}}
  revealAt(x,y,r=C.revealRadius){this.senseAt(x,y,r);}
  // EXCAVATION: root is soil-like but deliberately much slower. It supplies no

@@ -1,7 +1,7 @@
-const test=require('node:test'),assert=require('node:assert/strict');globalThis.window=globalThis;for(const f of['config','data','world','ecology','simulation'])require('../src/'+f+'.js');const{Simulation,World,Random,rollCaste,pathfind,hexDistance,hexDisk,Ecology}=AntGame,advance=(s,n)=>{for(let i=0;i<n*30;i++)s.update(1/30)};
-test('queen needs, egg costs, cap, and stacked death rules',()=>{const s=new Simulation(1),q=s.queen();const starter=s.ants.find(a=>a.type==='worker');assert.equal(starter?.colonyId,1);starter.colonyId=2;s.eggProduction=false;advance(s,900);assert.ok(s.food<.1&&s.water>9&&s.water<11);s.food=s.water=0;advance(s,10);assert.ok(q.health<922);advance(s,120);assert.equal(s.gameOver,true)});
+const test=require('node:test'),assert=require('node:assert/strict');globalThis.window=globalThis;for(const f of['config','data','world','brood','tasks','construction','inventory','ecology','audio','settings','simulation'])require('../src/'+f+'.js');const{Simulation,World,Random,rollCaste,pathfind,hexDistance,hexDisk,Ecology}=AntGame,advance=(s,n)=>{for(let i=0;i<n*30;i++)s.update(1/30)};
+test('queen needs, egg costs, cap, and stacked death rules',()=>{const s=new Simulation(1),q=s.queen();assert.equal(q.maxFood,200);const starter=s.ants.find(a=>a.type==='worker');assert.equal(starter?.colonyId,1);starter.colonyId=2;s.eggProduction=false;advance(s,900);assert.ok(q.food>99&&q.food<101&&q.water>9&&q.water<11);q.food=q.water=0;advance(s,10);assert.ok(q.health<922);advance(s,120);assert.equal(s.gameOver,true)});
 test('caste probabilities follow revamped worker and soldier distribution with disabled repros',()=>{const r=new Random(2);const counts={worker:0,minor:0,media:0,soldier:0,major:0,supermajor:0,queen:0,drone:0,princess:0};for(let i=0;i<1e5;i++)counts[rollCaste(r)]++;assert.ok(Math.abs(counts.worker/1e5-.65)<.01);assert.ok(Math.abs(counts.minor/1e5-.10)<.01);assert.ok(Math.abs(counts.media/1e5-.10)<.01);assert.ok(Math.abs(counts.soldier/1e5-.10)<.01);assert.ok(Math.abs(counts.major/1e5-.03)<.008);assert.ok(Math.abs(counts.supermajor/1e5-.02)<.008);assert.equal(counts.queen,0);assert.equal(counts.drone,0);assert.equal(counts.princess,0)});
-test('revamped castes initialize with exact health, speed, needs, mining, and clearance stats',()=>{const s=new Simulation(600),mn=s.addAnt('minor',s.nest.x,s.nest.y),md=s.addAnt('media',s.nest.x,s.nest.y),mj=s.addAnt('major',s.nest.x,s.nest.y),sm=s.addAnt('supermajor',s.nest.x,s.nest.y);assert.equal(mn.health,50);assert.equal(mn.speed,AntGame.Config.moveSpeed*2);assert.equal(mn.maxFoodNeed,25);assert.equal(mn.canMine,false);assert.equal(md.health,200);assert.equal(md.maxFoodNeed,100);assert.equal(mj.health,300);assert.equal(mj.drainMult,2);assert.equal(mj.clearanceNeeded,3);assert.equal(sm.health,500);assert.equal(sm.drainMult,3);assert.equal(sm.clearanceNeeded,3)});
+test('revamped castes initialize with exact health, speed, needs, mining, and clearance stats',()=>{const s=new Simulation(600),mn=s.addAnt('minor',s.nest.x,s.nest.y),md=s.addAnt('media',s.nest.x,s.nest.y),sl=s.addAnt('soldier',s.nest.x,s.nest.y),mj=s.addAnt('major',s.nest.x,s.nest.y),sm=s.addAnt('supermajor',s.nest.x,s.nest.y);assert.equal(mn.health,50);assert.equal(mn.speed,AntGame.Config.moveSpeed*2);assert.equal(mn.maxFoodNeed,25);assert.equal(mn.canMine,false);assert.equal(md.health,200);assert.equal(md.maxFoodNeed,100);assert.equal(sl.health,250);assert.equal(sl.maxFoodNeed,125);assert.equal(mj.health,300);assert.equal(mj.maxFoodNeed,200);assert.equal(mj.drainMult,2);assert.equal(mj.clearanceNeeded,3);assert.equal(sm.health,500);assert.equal(sm.maxFoodNeed,300);assert.equal(sm.drainMult,3);assert.equal(sm.clearanceNeeded,3)});
 test('terrain is a dense true hex disk with six neighbors and four-hex worker scans',()=>{const w=new World(3);assert.equal(w.cells.size,1+3*33*34);const c=w.peek(0,0);assert.equal(w.neighbors(c.x,c.y).length,6);assert.equal(hexDistance({x:0,y:0},{x:2,y:-1}),2);assert.equal(hexDisk(0,0,2).length,19);w.senseAt(0,0);assert.equal(w.peek(0,4).discovered,true);assert.equal(w.peek(0,5).discovered,false)});
 test('queen scans a fifteen-hex boundary at the start',()=>{const s=new Simulation(31),q=s.queen();assert.equal(s.world.peek(q.x+15,q.y)?.discovered,true);assert.equal(s.world.peek(q.x,q.y+16)?.discovered,false)});
 test('unrevealed cells allow dig designation without revealing until in range',()=>{const s=new Simulation(4),c=s.world.get(30,0);assert.equal(c.discovered,false);assert.equal(s.designate(30,0),true);assert.equal(s.designateBuild(30,0),false);assert.equal(c.discovered,false)});
@@ -16,22 +16,22 @@ test('manual harvest collects every loose food type into queen storage',()=>{con
 test('soldiers receive manual target commands',()=>{const s=new Simulation(72),a=s.addAnt('soldier',s.nest.x,s.nest.y),creature={id:'target-test',x:s.nest.x+1,y:s.nest.y,alive:true,health:20,species:'worm',food:1,state:'active',path:[]};s.creatures.push(creature);assert.equal(s.orderTarget('attack',creature.id,[a]),null);assert.equal(a.task.targetId,creature.id);assert.equal(a.state,'attack')});
 test('a live timed threat makes a worker retreat, report, and dispatch a soldier',()=>{const s=new Simulation(73),worker=s.addAnt('worker',s.nest.x+1,s.nest.y),soldier=s.addAnt('soldier',s.nest.x,s.nest.y),threat={id:'threat-test',x:worker.x,y:worker.y,alive:true,health:50,species:'beetle',food:1,state:'active',path:[],timer:0,provoked:true};s.creatures.push(threat);advance(s,3);assert.equal(worker.threatId,null);assert.equal(soldier.task.targetId,threat.id);assert.equal(soldier.state,'attack');assert.ok(s.events.some(e=>e.text.includes('Soldiers respond')))});
 test('deep water is impassable and rising water damages every ant type',()=>{const s=new Simulation(8),c=s.world.peek(s.nest.x+1,s.nest.y);c.water=7;assert.equal(pathfind(s.world,s.nest,c),null);const a=s.addAnt('worker',c.x,c.y),hp=a.health;Ecology.update(s,.01);assert.ok(a.health<hp)});
-test('physical storage and evolution increase food, water and colony limits',()=>{const s=new Simulation(9);assert.equal(s.foodStore.hole,false);assert.equal(s.foodCapacity(),200);s.evolution=1000;s.evolve('food_store');s.evolve('water_store');s.evolve('colony_limit');assert.equal(s.foodCapacity(),500);assert.equal(s.waterCapacity(),250);assert.equal(s.colonyCapacity(),25);const c=s.world.peek(s.nest.x+1,s.nest.y);c.waterStorage=true;c.water=0;assert.equal(pathfind(s.world,s.nest,c),null)});
-test('capacity evolutions are repeatable with escalating costs',()=>{const s=new Simulation(92);s.evolution=1000;assert.equal(s.evolve('food_store'),null);assert.equal(s.traitLevels.food_store,1);assert.equal(s.foodCapacity(),500);assert.equal(s.evolve('food_store'),null);assert.equal(s.traitLevels.food_store,2);assert.equal(s.foodCapacity(),1250);assert.equal(s.evolution,625)});
+test('physical storage and evolution increase food, water and colony limits',()=>{const s=new Simulation(9);assert.equal(s.foodStore.hole,false);assert.equal(s.foodCapacity(),300);s.evolution=1000;s.evolve('food_store');s.evolve('water_store');s.evolve('colony_limit');assert.equal(s.foodCapacity(),750);assert.equal(s.waterCapacity(),250);assert.equal(s.colonyCapacity(),25);const c=s.world.peek(s.nest.x+1,s.nest.y);c.waterStorage=true;c.water=0;assert.equal(pathfind(s.world,s.nest,c),null)});
+test('capacity evolutions are repeatable with escalating costs',()=>{const s=new Simulation(92);s.evolution=1000;assert.equal(s.evolve('food_store'),null);assert.equal(s.traitLevels.food_store,1);assert.equal(s.foodCapacity(),750);assert.equal(s.evolve('food_store'),null);assert.equal(s.traitLevels.food_store,2);assert.equal(s.foodCapacity(),1875);assert.equal(s.evolution,625)});
 test('feeder cap begins at 1 and doubles with feeder_limit evolution at initial 75 cost',()=>{const s=new Simulation(99),a1=s.addAnt('worker',s.nest.x,s.nest.y),a2=s.addAnt('worker',s.nest.x,s.nest.y);assert.equal(s.feederCapacity(),1);assert.equal(s.setFeeder(a1),null);assert.ok(s.setFeeder(a2).includes('Feeder cap reached'));s.evolution=200;assert.equal(s.evolve('feeder_limit'),null);assert.equal(s.feederCapacity(),2);assert.equal(s.setFeeder(a2),null);assert.equal(s.evolution,125)});
-test('food and water are consumed from stored-item records',()=>{const s=new Simulation(93);s.spendFood(10);s.spendWater(5);assert.equal(s.food,190);assert.equal(s.water,95);assert.equal(s.foodStore.items.reduce((n,item)=>n+item.amount,0),190);assert.equal(s.waterStore.items.reduce((n,item)=>n+item.amount,0),95)});
-test('food and queen water are individual slots while reservoir droplets stay independent',()=>{const s=new Simulation(95),a=s.addAnt('worker',s.nest.x,s.nest.y),c=s.world.peek(s.nest.x+1,s.nest.y);assert.equal(s.foodStore.items.length,200);assert.equal(s.foodStore.items[6].storageTile,1);assert.equal(s.foodStore.items[6].storageSlot,1);assert.equal(s.waterStore.items.length,100);c.solid=false;c.waterStorage=true;s.waterStore.tiles.push({x:c.x,y:c.y,water:5,items:s.makeItems('test-droplet','droplet',5)});s.water=50;s.syncStores();assert.equal(s.requestReservoirWithdrawal(),null);advance(s,3);assert.ok(s.water>54.5&&s.water<55);assert.equal(s.reservoirWater(),0);assert.equal(s.waterStore.used,0);assert.equal(s.waterStore.items.length,55);assert.equal(a.carry,null)});
+test('food and water are consumed from stored-item records',()=>{const s=new Simulation(93);s.spendFood(10);s.spendWater(5);assert.equal(s.food,290);assert.equal(s.water,95);assert.equal(s.foodStore.items.reduce((n,item)=>n+item.amount,0),290);assert.equal(s.waterStore.items.reduce((n,item)=>n+item.amount,0),95)});
+test('food and queen water are individual slots while reservoir droplets stay independent',()=>{const s=new Simulation(95),a=s.addAnt('worker',s.nest.x,s.nest.y),c=s.world.peek(s.nest.x+1,s.nest.y);assert.equal(s.foodStore.items.length,300);assert.equal(s.foodStore.items[6].storageTile,1);assert.equal(s.foodStore.items[6].storageSlot,1);assert.equal(s.waterStore.items.length,100);c.solid=false;c.waterStorage=true;s.waterStore.tiles.push({x:c.x,y:c.y,water:5,items:s.makeItems('test-droplet','droplet',5)});s.water=50;s.syncStores();assert.equal(s.requestReservoirWithdrawal(),null);advance(s,3);assert.ok(s.water>=54.5&&s.water<=55);assert.equal(s.reservoirWater(),0);assert.equal(s.waterStore.used,0);assert.equal(s.waterStore.items.length,55);assert.equal(a.carry,null)});
 test('spoil objects and area lifecycle are serialized independently',()=>{const s=new Simulation(96),cell=s.world.peek(s.nest.x+1,s.nest.y),worker=s.addAnt('worker',s.nest.x,s.nest.y);cell.zone='spoil';cell.solid=false;worker.carry={type:'soil',amount:1};worker.destination={kind:'spoil',point:cell};worker.timer=0;s.deposit(worker,0);assert.equal(s.spoilItems.length,1);assert.equal(s.paintArea(cell.x,cell.y,'Nursery','territory'),true);const renamed=s.renameArea('territory:Nursery','Brood');assert.equal(renamed,'territory:Brood');const copy=Simulation.restore(JSON.parse(JSON.stringify(s.serialize())));assert.equal(copy.areas['territory:Brood'].name,'Brood');assert.equal(copy.spoilItems.length,1);assert.equal(copy.eraseArea('territory:Brood'),true);assert.equal(copy.world.peek(cell.x,cell.y).area,undefined)});
 test('a completed dirt hole becomes ordinary soil and reservoirs have an access destination',()=>{const s=new Simulation(94),pit=s.world.pit,pc=s.world.peek(pit.x,pit.y),a=s.addAnt('worker',s.nest.x,s.nest.y);pit.used=pit.capacity-1;a.carry={type:'soil',amount:1};a.destination={kind:'pit',pit,point:pit};a.timer=0;s.deposit(a,0);assert.equal(pc.solid,true);assert.equal(pc.zone,'soil');const c=s.world.peek(s.nest.x+1,s.nest.y);c.solid=false;c.waterStorage=true;s.waterStore.tiles.push({x:c.x,y:c.y,water:0,items:[]});assert.equal(s.reservoirDestination(a)?.kind,'reservoir')});
 test('water reservoir requires two excavations before construction',()=>{const s=new Simulation(91),c=s.world.peek(s.nest.x+1,s.nest.y);const a=s.addAnt('worker',s.nest.x,s.nest.y);s.world.pit.used=10;s.designateBuild(c.x,c.y,a,'water');for(let i=0;i<1080;i++)s.update(1/30);assert.equal(c.waterStorage,true);assert.equal(c.excavations,2);assert.equal(s.jobs.some(j=>j.structure==='water'),false);assert.equal(s.world.removed,0)});
-test('health metadata, shade variation, enemy resources and save are stable',()=>{const s=new Simulation(10),a=s.addAnt('worker',s.nest.x,s.nest.y);assert.equal(a.maxHealth,100);assert.ok(a.shade>.85&&a.shade<1.15);s.world.ensureChunk(3,0);Ecology.sync(s);const col=s.colonies.find(c=>c.featureId==='colony-3,0');assert.equal(col.food,400);assert.equal(col.water,200);s.setFeeder(a);const copy=Simulation.restore(JSON.parse(JSON.stringify(s.serialize())));assert.equal(copy.ants.find(w=>w.id===a.id).feeder,true);assert.ok(copy.conservation())});
+test('health metadata, shade variation, enemy resources and save are stable',()=>{const s=new Simulation(10),a=s.addAnt('worker',s.nest.x,s.nest.y);assert.equal(a.maxHealth,100);assert.ok(a.shade>.85&&a.shade<1.15);s.world.ensureChunk(3,0);Ecology.sync(s);const col=s.colonies.find(c=>c.featureId==='colony-3,0');assert.equal(col.food,600);assert.equal(col.water,200);s.setFeeder(a);const copy=Simulation.restore(JSON.parse(JSON.stringify(s.serialize())));assert.equal(copy.ants.find(w=>w.id===a.id).feeder,true);assert.ok(copy.conservation())});
 test('princesses have a durable winged reproductive model',()=>{const s=new Simulation(98),p=s.addAnt('princess',s.nest.x,s.nest.y);assert.deepEqual(p.reproductive,{role:'princess',winged:true,mateReady:false,dispersal:false});assert.equal(p.visual.caste,'princess')});
 test('founding placements are revealed, seeded, varied, and keep the guaranteed black hole inside spoil',()=>{const a=new Simulation(201),same=new Simulation(201),other=new Simulation(202);assert.deepEqual(a.nest,same.nest);assert.deepEqual(a.world.pit,same.world.pit);assert.notDeepEqual(a.nest,other.nest);assert.ok(pathfind(a.world,a.nest,a.world.pit));assert.equal(a.foodStore.x,a.world.founding.foodStore.x);assert.ok(a.world.founding.waterStore);const waterCell=a.world.peek(a.world.founding.waterStore.x,a.world.founding.waterStore.y);assert.equal(waterCell.discovered,true);assert.equal(waterCell.water,7);assert.ok(a.world.activeWater.has(`${waterCell.x},${waterCell.y}`));for(const seed of[201,202,203,204,205]){const s=new Simulation(seed),spoil=s.world.founding.spoil,pit=s.world.peek(s.world.pit.x,s.world.pit.y),wc=s.world.peek(s.world.founding.waterStore.x,s.world.founding.waterStore.y);assert.ok(hexDistance(s.world.pit,spoil)<=3);assert.equal(pit.zone,'pit');assert.equal(pit.solid,false);assert.equal(pit.discovered,true);assert.equal(wc.water,7);assert.equal(wc.discovered,true);assert.equal(s.world.peek(s.nest.x,s.nest.y).discovered,true);assert.equal(s.world.peek(spoil.x,spoil.y).discovered,true);}});
 test('personal ant hunger and thirst use separate ten and twenty percent thresholds',()=>{const s=new Simulation(203),a=s.addAnt('worker',s.nest.x,s.nest.y);assert.equal(s.antFoodNeedRatio,.10);assert.equal(s.antWaterNeedRatio,.20);assert.equal(a.foodNeed,50);assert.equal(a.waterNeed,50);a.foodNeed=6;s.update(1/30);assert.notEqual(a.state,'need-food');a.foodNeed=4;s.update(1/30);assert.equal(a.state,'need-food');a.state='idle';a.task=null;a.foodNeed=50;a.waterNeed=9;s.update(1/30);assert.equal(a.state,'need-water')});
 test('ant need thresholds are configurable and saved',()=>{const s=new Simulation(205);s.antFoodNeedRatio=.4;s.antWaterNeedRatio=.3;const copy=Simulation.restore(JSON.parse(JSON.stringify(s.serialize())));assert.equal(copy.antFoodNeedRatio,.4);assert.equal(copy.antWaterNeedRatio,.3);const a=copy.addAnt('worker',copy.nest.x,copy.nest.y);a.foodNeed=19;assert.equal(copy.antNeedType(a),'food')});
 test('starving or dehydrated ants take damage and can die',()=>{const s=new Simulation(206),a=s.addAnt('worker',s.nest.x,s.nest.y);a.foodNeed=0;a.waterNeed=50;const hp=a.health;s.update(1);assert.ok(a.health<hp);a.health=1;a.waterNeed=0;s.update(1);assert.equal(a.alive,false);assert.equal(a.state,'dead')});
 test('manual and combat orders retain priority over automatic ant needs',()=>{const s=new Simulation(204),a=s.addAnt('worker',s.nest.x,s.nest.y);a.foodNeed=4;a.held=true;s.update(1/30);assert.notEqual(a.state,'need-food');a.held=false;a.state='attack';a.task={type:'attack',source:'manual'};s.update(1/30);assert.notEqual(a.state,'need-food');assert.ok(a.foodNeed<4)});
-test('soldier attacks execute properly and queen emits warnings when dehydrated',()=>{const s=new Simulation(210),soldier=s.addAnt('soldier',s.nest.x,s.nest.y),creature={id:'target-soldier-test',x:s.nest.x+1,y:s.nest.y,alive:true,health:20,species:'worm',food:1,state:'active',path:[]};s.creatures.push(creature);assert.equal(s.orderTarget('attack',creature.id,[soldier]),null);advance(s,2);assert.equal(creature.alive,false);s.water=0;s.update(1/30);assert.ok(s.events.some(e=>e.text.includes('DEHYDRATED')));const cell=s.world.get(35,0);assert.equal(s.designate(35,0),true);cell.discovered=true;cell.solid=false;s.refreshJobStates();assert.equal(s.jobs.some(j=>j.x===35&&j.y===0),false)});
+test('soldier attacks execute properly and queen emits warnings when dehydrated',()=>{const s=new Simulation(210),soldier=s.addAnt('soldier',s.nest.x,s.nest.y),creature={id:'target-soldier-test',x:s.nest.x+1,y:s.nest.y,alive:true,health:20,species:'worm',food:1,state:'active',path:[]};s.creatures.push(creature);assert.equal(s.orderTarget('attack',creature.id,[soldier]),null);advance(s,2);assert.equal(creature.alive,false);const q=s.queen();if(q)q.water=0;s.water=0;s.update(1/30);assert.ok(s.events.some(e=>e.text.includes('DEHYDRATED')));const cell=s.world.get(35,0);assert.equal(s.designate(35,0),true);cell.discovered=true;cell.solid=false;s.refreshJobStates();assert.equal(s.jobs.some(j=>j.x===35&&j.y===0),false)});
 test('extracting water from a pool reduces tile water level proportionally down to dry',()=>{const s=new Simulation(301),c=s.world.peek(23,-16);c.solid=false;c.water=7;c.discovered=true;s.world.activeWater.add(AntGame.key(c.x,c.y));assert.equal(AntGame.getWaterExtractValue(7),100);assert.equal(AntGame.getWaterExtractValue(6),85);assert.equal(AntGame.getWaterExtractValue(5),70);assert.equal(AntGame.getWaterExtractValue(3),45);const bank=s.world.neighbors(c.x,c.y)[0];bank.solid=false;bank.water=0;bank.discovered=true;const worker=s.addAnt('worker',bank.x,bank.y);worker.waterNeed=0;assert.equal(s.assignAntNeed(worker),true);s.consumeAntNeed(worker);assert.ok(c.water<7);assert.ok(c.water>0);c.water=0.35;worker.waterNeed=0;assert.equal(s.assignAntNeed(worker),true);s.consumeAntNeed(worker);assert.equal(c.water,0)});
 test('water spread stops when thinned to level 0.5 and level 1 tiles do not spread unless triggered',()=>{const s=new Simulation(400),center=s.world.peek(s.nest.x+1,s.nest.y);center.water=1.0;center.solid=false;s.world.activeWater.add(AntGame.key(center.x,center.y));const neighbor=s.world.neighbors(center.x,center.y)[0];neighbor.solid=false;neighbor.water=0;advance(s,2);assert.equal(center.water,1.0);assert.equal(neighbor.water,0);center.water=7.0;advance(s,10);assert.ok(neighbor.water>0);assert.ok(center.water>0)});
 test('water flows from 2.6 tile to adjacent 0.5 tile regardless of string key order',()=>{const s=new Simulation(401),c=s.world.peek(s.nest.x+1,s.nest.y),n1=s.world.neighbors(c.x,c.y)[0],n2=s.world.neighbors(c.x,c.y)[1];c.solid=false;n1.solid=false;n2.solid=false;c.water=2.6;n1.water=2.6;n2.water=0.5;s.world.activeWater.add(AntGame.key(c.x,c.y));s.world.activeWater.add(AntGame.key(n1.x,n1.y));s.world.activeWater.add(AntGame.key(n2.x,n2.y));advance(s,3);assert.ok(n2.water>0.5);assert.ok(c.water<2.6||n1.water<2.6)});
@@ -83,7 +83,7 @@ test('two-layer priority: tie-break follows visible hierarchy while numeric prio
 test('dangerous priority consequences: starving worker continues digging and suffers damage without override',()=>{const s=new Simulation(1302),w=s.addAnt('worker',s.nest.x,s.nest.y);s.food=100;w.foodNeed=0;const cell=s.world.peek(s.nest.x+1,s.nest.y);cell.solid=true;cell.discovered=true;s.designate(cell.x,cell.y);s.refreshJobStates();s.setCastePriority('worker','selfFeed',5);s.setCastePriority('worker','dig',1);s.assign(w);assert.equal(w.state,'to-dig');const hpBefore=w.health;s.drainAntNeeds(w,2.0);assert.ok(w.health<hpBefore);assert.equal(w.state,'to-dig');});
 test('action toggle separation and caste capability safety preserved under priority system',()=>{const s=new Simulation(1303),w=s.addAnt('worker',s.nest.x,s.nest.y);const grub={id:'grub-corpse-test',species:'grub',x:s.nest.x+1,y:s.nest.y,alive:false,food:100,state:'dead'};s.creatures.push(grub);s.world.peek(grub.x,grub.y).discovered=true;s.setCastePriority('worker','carry',1);s.assign(w);assert.notEqual(w.task?.targetId,grub.id);const mite={id:'mite-corpse-test',species:'mite',x:s.nest.x+1,y:s.nest.y,alive:false,food:20,state:'dead'};s.creatures.push(mite);w.actions.carry=false;s.assign(w);assert.notEqual(w.task?.targetId,mite.id);});
 test('feeder exclusivity preserved and manual command overrides priorities',()=>{const s=new Simulation(1304),w=s.addAnt('worker',s.nest.x,s.nest.y);const corpse={id:'stored-meat-1',species:'mite',x:s.nest.x+1,y:s.nest.y,alive:false,food:20,state:'dead',inStorage:true,storageColonyId:1};s.creatures.push(corpse);s.setCastePriority('worker','feedQueen',1);s.assign(w);assert.notEqual(w.state,'to-process');assert.notEqual(w.task?.type,'process-food');const targetCell={x:s.nest.x+2,y:s.nest.y};s.move(w,targetCell);assert.equal(w.manualOrder,true);assert.equal(w.held,true);assert.equal(w.state,'moving');});
-test('5-second release timer automatically returns idle manual/selected ants to colony work',()=>{const s=new Simulation(1305),w=s.addAnt('worker',s.nest.x,s.nest.y);let releasedId=null;s.onAntAutoReleased=(id)=>{releasedId=id;};const target={x:s.nest.x+1,y:s.nest.y};s.move(w,target);assert.equal(w.manualOrder,true);assert.equal(w.held,true);s.update(0.1);assert.equal(w.idleReleaseTimer,0);w.path=[];w.state='idle';w.x=target.x;w.y=target.y;s.update(2.0);assert.equal(w.held,true);assert.ok(w.idleReleaseTimer>=1.9);assert.equal(releasedId,null);s.update(3.1);assert.equal(w.held,false);assert.equal(w.manualOrder,false);assert.equal(releasedId,w.id);w.selected=true;w.held=false;w.manualOrder=false;w.state='idle';s.update(2.5);assert.ok(w.idleReleaseTimer>=2.4);assert.equal(w.selected,true);s.update(2.6);assert.equal(w.selected,false);});
+test('10-second release timer automatically returns idle manual/selected ants to colony work',()=>{const s=new Simulation(1305),w=s.addAnt('worker',s.nest.x,s.nest.y);let releasedId=null;s.onAntAutoReleased=(id)=>{releasedId=id;};const target={x:s.nest.x+1,y:s.nest.y};s.move(w,target);assert.equal(w.manualOrder,true);assert.equal(w.held,true);s.update(0.1);assert.equal(w.idleReleaseTimer,0);w.path=[];w.state='idle';w.x=target.x;w.y=target.y;s.update(5.0);assert.equal(w.held,true);assert.ok(w.idleReleaseTimer>=4.9);assert.equal(releasedId,null);s.update(5.1);assert.equal(w.held,false);assert.equal(w.manualOrder,false);assert.equal(releasedId,w.id);w.selected=true;w.held=false;w.manualOrder=false;w.state='idle';s.update(5.0);assert.ok(w.idleReleaseTimer>=4.9);assert.equal(w.selected,true);s.update(5.1);assert.equal(w.selected,false);});
 test('caste priorities persist across serialization and restore',()=>{const s=new Simulation(1306);s.setCastePriority('worker','dig',2);s.setCastePriority('soldier','combat',1);s.setCastePriority('major','carry',3);const saved=JSON.parse(JSON.stringify(s.serialize()));const restored=Simulation.restore(saved);assert.equal(restored.getCastePriority('worker','dig'),2);assert.equal(restored.getCastePriority('soldier','combat'),1);assert.equal(restored.getCastePriority('major','carry'),3);assert.equal(restored.getCastePriority('minor','selfFeed'),1);});
 test('feeder priority configuration decides whether to feed queen, chew food, or proceed to other tasks',()=>{const s=new Simulation(1307),w=s.addAnt('worker',s.nest.x,s.nest.y);s.setFeeder(w);s.food=10;const corpse={id:'feeder-prio-corpse',species:'mite',x:s.nest.x+1,y:s.nest.y,alive:false,food:30,state:'dead',inStorage:true,storageColonyId:1};s.creatures.push(corpse);const looseSeed={id:'loose-seed-1',foodType:'seeds',x:s.nest.x+2,y:s.nest.y,remaining:40,state:'dormant'};s.resources.push(looseSeed);s.world.peek(looseSeed.x,looseSeed.y).discovered=true;const digCell=s.world.peek(s.nest.x-1,s.nest.y);digCell.solid=true;digCell.discovered=true;s.designate(digCell.x,digCell.y);s.refreshJobStates();s.setCastePriority('feeder','chewFood',1);s.setCastePriority('feeder','feedQueen',3);s.setCastePriority('feeder','dig',5);s.assign(w);assert.equal(w.state,'processing');assert.equal(w.task?.targetId,corpse.id);w.state='idle';w.task=null;w.path=[];s.setCastePriority('feeder','feedQueen',1);s.setCastePriority('feeder','chewFood',3);s.setCastePriority('feeder','dig',5);s.assign(w);assert.equal(w.state,'feeding-food');w.state='idle';w.task=null;w.path=[];s.setCastePriority('feeder','dig',1);s.setCastePriority('feeder','feedQueen',5);s.setCastePriority('feeder','chewFood',5);s.assign(w);assert.equal(w.state,'to-dig');});
 test('sim.brush dragging applies valid actions and silently ignores invalid hexes',()=>{
@@ -132,6 +132,281 @@ test('selected ant action commands via RMB designate for selected workers withou
  s.brush(buildCell.x,buildCell.y,0,'build',[w],'food');
  assert.equal(w.preferred,`1:build:food:${buildCell.x},${buildCell.y}`);
 });
+test('cancelling active build refunds resources, resets worker to idle without crash, and bulk cancel across workers succeeds',()=>{
+ const s=new Simulation(700);
+ s.world.pit.used=20;s.world.removed=20;
+ const c=s.world.get(s.nest.x+1,s.nest.y);
+ c.solid=false;c.discovered=true;
+ s.designateBuild(c.x,c.y,null,'food');
+ s.refreshJobStates();
+ const w=s.addAnt('worker',s.nest.x,s.nest.y);
+ s.syncStores();
+ s.assign(w);
+ for(let i=0;i<400;i++){s.update(1/30);if(w.state==='building')break;}
+ assert.equal(w.state,'building');
+ const foodBefore=s.food,pitBefore=s.world.pit.used;
+ const job=s.jobs.find(j=>j.x===c.x&&j.y===c.y);
+ const deliveredFood=job?.deliveredFood||0;
+ const deliveredDirt=job?.deliveredDirt||0;
+ const carryFood=w.carry?.food||0;
+ const carryDirt=w.carry?.dirt||0;
+ s.cancel(c.x,c.y);
+ assert.equal(w.state,'idle');
+ assert.equal(w.task,null);
+ assert.equal(w.carry,null);
+ assert.equal(s.food,foodBefore+deliveredFood+carryFood);
+ assert.equal(s.world.pit.used,pitBefore+deliveredDirt+carryDirt);
+ for(let i=0;i<60;i++)s.update(1/30);
+ assert.ok(s.conservation());
+ for(let dx=-2;dx<=2;dx++){
+  for(let dy=-2;dy<=2;dy++){
+   const x=s.nest.x+dx,y=s.nest.y+dy;
+   const cell=s.world.get(x,y);cell.discovered=true;cell.solid=false;
+   s.designateBuild(x,y,null,'food');
+  }
+ }
+ for(let i=0;i<10;i++){const worker=s.addAnt('worker',s.nest.x,s.nest.y);s.assign(worker);}
+ for(let i=0;i<60;i++)s.update(1/30);
+ for(let dx=-3;dx<=3;dx++)s.brush(s.nest.x+dx,s.nest.y,2,'cancel');
+ for(let i=0;i<90;i++)s.update(1/30);
+ assert.ok(s.conservation());
+});
+test('action wheel default is none, move is selectable, and arrow keys cycle actions correctly',()=>{
+ const fs = require('fs');
+ const html = fs.readFileSync(__dirname + '/../index.html', 'utf8');
+ const appJs = fs.readFileSync(__dirname + '/../src/app.js', 'utf8');
+ assert.ok(html.includes('data-action="none"'), 'index.html has none in action wheel');
+ assert.ok(html.includes('data-action="move"'), 'index.html has move in action wheel');
+ assert.ok(html.includes('>None</b>'), 'initial action badge is None');
+ assert.ok(appJs.includes("activeAction='none'"), 'app.js initializes activeAction to none');
+ assert.ok(appJs.includes("e.key==='ArrowUp'||e.key==='ArrowDown'"), 'app.js binds arrow keys to cycle actions');
+ assert.ok(appJs.includes("setActiveAction('none')"), 'app.js resets activeAction to none on mode change');
+});
+test('inactivity timer is 10s, middle mouse exclusively pans camera, and RMB drags orders for selected ants',()=>{
+ const fs = require('fs');
+ const configJs = fs.readFileSync(__dirname + '/../src/config.js', 'utf8');
+ const appJs = fs.readFileSync(__dirname + '/../src/app.js', 'utf8');
+ const simJs = fs.readFileSync(__dirname + '/../src/simulation.js', 'utf8');
+ assert.ok(configJs.includes('idleReleaseSeconds:10.0') || configJs.includes('idleReleaseSeconds: 10.0'), 'config specifies 10s release timer');
+ assert.ok(simJs.includes('C.idleReleaseSeconds||10.0'), 'simulation uses configured 10s release timer');
+ assert.ok(appJs.includes('isPan=e.button===1;'), 'camera panning is strictly middle mouse');
+ assert.ok(!appJs.includes('isPan=e.button===1||e.button===2'), 'RMB does not trigger camera panning');
+ assert.ok(appJs.includes('drag.button===2'), 'RMB drag is handled in pointermove');
+ assert.ok(appJs.includes("paint(g,selUnits)"), 'RMB drag dispatches paint orders with selected units');
+});
+test('ant action toggles menu is separated from toolbar and styled vertically at left-middle of screen',()=>{
+ const fs = require('fs');
+ const html = fs.readFileSync(__dirname + '/../index.html', 'utf8');
+ const css = fs.readFileSync(__dirname + '/../hex-ui.css', 'utf8');
+ const appJs = fs.readFileSync(__dirname + '/../src/app.js', 'utf8');
+ assert.ok(!html.includes('<div class="toolbar-container"><div class="toolbar">...<div id="ant-action-toggles"'), 'toggles are not inside toolbar container');
+ assert.ok(!html.includes('class="toolbar-container"><div class="toolbar"') || !html.includes('</div><div id="ant-action-toggles" class="ant-action-toggles" hidden></div></div>'), 'toggles separated from toolbar container');
+ assert.ok(css.includes('.ant-action-toggles{position:absolute;left:24px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column'), 'toggles positioned vertically at left-middle of screen');
+ assert.ok(appJs.includes('ant-toggles-header'), 'toggles menu includes header');
+});
+test('feed action toggle is removed from work menu and selfFeed/selfWater are clarified while feeder exclusivity is maintained',()=>{
+ const data = require('../src/data.js');
+ const AntActions = globalThis.AntGame?.AntActions;
+ assert.ok(AntActions, 'AntActions is defined');
+ assert.ok(!AntActions.some(a=>a.id==='feed'), 'feed is removed from AntActions');
+ assert.ok(AntActions.some(a=>a.id==='selfFeed'&&a.name==='Self Feed'), 'selfFeed is in AntActions as Self Feed');
+ assert.ok(AntActions.some(a=>a.id==='selfWater'&&a.name==='Self Water'), 'selfWater is in AntActions as Self Water');
+ const s = new Simulation(1401);
+ const w = s.addAnt('worker', s.nest.x, s.nest.y);
+ s.assign(w);
+ assert.notEqual(w.task?.type, 'feedQueen');
+ assert.notEqual(w.task?.type, 'queenWater');
+ assert.notEqual(w.task?.type, 'chewFood');
+});
 
+test('settings manager handles keybinds, audio toggles, wheel mode, numpad and mouse button parsing',()=>{
+ const S = AntGame.Settings;
+ assert.ok(S, 'SettingsManager is instantiated on AntGame.Settings');
 
+ // Check default keybinds
+ assert.equal(S.keybinds.mode_brush.key, 'f');
+ assert.equal(S.keybinds.mode_select.key, 'e');
+ assert.equal(S.keybinds.mode_group.key, 'r');
+ assert.equal(S.keybinds.toggle_wheel_mode.key, 'q');
+
+ assert.equal(S.keybinds.action_dig.key, 'z');
+ assert.equal(S.keybinds.action_build.key, 'x');
+ assert.equal(S.keybinds.action_cancel.key, 'c');
+ assert.equal(S.keybinds.action_harvest.key, 'v');
+ assert.equal(S.keybinds.action_carry.key, 'b');
+ assert.equal(S.keybinds.action_attack.key, 'n');
+ assert.equal(S.keybinds.action_move.key, 'm');
+
+ assert.equal(S.keybinds.camera_up.key, 'w');
+ assert.equal(S.keybinds.camera_left.key, 'a');
+ assert.equal(S.keybinds.camera_down.key, 's');
+ assert.equal(S.keybinds.camera_right.key, 'd');
+
+ // Check empty caste selection & queen focus keys by default
+ assert.equal(S.keybinds.select_soldiers, null);
+ assert.equal(S.keybinds.select_workers, null);
+ assert.equal(S.keybinds.select_feeders, null);
+ assert.equal(S.keybinds.focus_queen, null);
+
+ // Test wheel mode toggle
+ const initWheel = S.wheelMode;
+ const nextWheel = S.toggleWheelMode();
+ assert.notEqual(initWheel, nextWheel);
+ S.toggleWheelMode(); // return to init
+
+ // Test audio toggle
+ const initSound = S.soundEnabled;
+ const nextSound = S.toggleSound();
+ assert.equal(nextSound, !initSound);
+ if (AntGame.AudioCoordinator) {
+  assert.equal(AntGame.AudioCoordinator.enabled, nextSound);
+ }
+ S.toggleSound(); // return to init
+
+ // Test Numpad key parsing & matching
+ const numpadEv = { code: 'Numpad5', key: '5' };
+ const numDesc = S.parseFromKeyEvent(numpadEv);
+ assert.equal(numDesc.code, 'Numpad5');
+ assert.equal(numDesc.label, 'Num 5');
+ S.keybinds.action_dig = numDesc;
+ assert.ok(S.matchesKeyEvent('action_dig', numpadEv));
+ assert.ok(!S.matchesKeyEvent('action_dig', { code: 'Digit5', key: '5' }));
+
+ // Test Mouse button parsing & matching (Mouse 3, Mouse 4, Mouse 5, Mouse 6)
+ for (const btn of [1, 3, 4, 5]) {
+  const mEv = { button: btn };
+  const mDesc = S.parseFromMouseEvent(mEv);
+  assert.equal(mDesc.button, btn);
+  S.keybinds.action_attack = mDesc;
+  assert.ok(S.matchesMouseEvent('action_attack', mEv));
+  assert.ok(!S.matchesMouseEvent('action_attack', { button: btn === 1 ? 2 : 1 }));
+ }
+
+ // Reset keybinds to defaults
+ S.resetKeybinds();
+ assert.equal(S.keybinds.action_dig.key, 'z');
+ assert.equal(S.keybinds.action_attack.key, 'n');
+});
+
+test('app.js preserves activeAction between select and group, and wires WASD camera, wheel toggle, and 7 actions',()=>{
+ const fs = require('fs');
+ const appJs = fs.readFileSync(__dirname + '/../src/app.js', 'utf8');
+ const html = fs.readFileSync(__dirname + '/../index.html', 'utf8');
+
+ // Mode switch check
+ assert.ok(appJs.includes('isSelectGroupSwitch'), 'setMode checks for select/group transition');
+
+ // Wheel toggle check
+ assert.ok(appJs.includes('toggle_wheel_mode'), 'app.js includes toggle_wheel_mode');
+ assert.ok(appJs.includes("wheelMode')==='actions'"), 'app.js checks wheelMode for actions cycle');
+
+ // WASD camera panning in frame loop
+ assert.ok(appJs.includes('heldKeys'), 'app.js tracks heldKeys');
+ assert.ok(appJs.includes('camera_up') && appJs.includes('camera_left'), 'app.js checks camera keys for smooth pan');
+
+ // 7 Actions on Z, X, C, V, B, N, M
+ for (const act of ['action_dig', 'action_build', 'action_cancel', 'action_harvest', 'action_carry', 'action_attack', 'action_move']) {
+  assert.ok(appJs.includes(act), `app.js binds ${act}`);
+ }
+
+ // Caste selection and queen focus handlers
+ assert.ok(appJs.includes('select_soldiers'), 'app.js binds select_soldiers');
+ assert.ok(appJs.includes('focus_queen'), 'app.js binds focus_queen');
+
+ // Extra mouse buttons listener
+ assert.ok(appJs.includes('e.button>=3'), 'app.js listens for extra mouse buttons (Mouse 4, 5, etc.)');
+
+ // HTML script order and buttons
+ assert.ok(html.includes('src/settings.js'), 'index.html includes settings.js');
+ assert.ok(html.includes('id="settings-open"'), 'index.html includes settings-open button');
+ assert.ok(html.includes('id="settings-panel"'), 'index.html includes settings-panel container');
+});
+
+test('evolution points accumulate passively over time during simulation update and persist in saves',()=>{
+ const s=new Simulation(42);
+ assert.equal(s.evolution,0);
+ assert.equal(s.totalEvolution,0);
+ s.update(10.0);
+ assert.ok(s.evolution>1.7&&s.evolution<1.9,`Expected ~1.8 EP after 10s at 0.18/s, got ${s.evolution}`);
+ assert.equal(s.totalEvolution,s.evolution);
+ const saved=JSON.parse(JSON.stringify(s.serialize()));
+ const restored=Simulation.restore(saved);
+ assert.equal(restored.evolution,s.evolution);
+ assert.equal(restored.totalEvolution,s.totalEvolution);
+});
+
+test('UI cleanup: footer removed, title moved to settings, dev bubble toggle, and caste hover legend', () => {
+ const fs = require('fs');
+ const path = require('path');
+ const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf-8');
+ const css = fs.readFileSync(path.join(__dirname, '..', 'style.css'), 'utf-8');
+ const hexCss = fs.readFileSync(path.join(__dirname, '..', 'hex-ui.css'), 'utf-8');
+ const settingsJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'settings.js'), 'utf-8');
+ const appJs = fs.readFileSync(path.join(__dirname, '..', 'src', 'app.js'), 'utf-8');
+
+ // Footer and obsolete tags removed
+ assert.ok(!html.includes('<footer>'), 'footer removed from index.html');
+ assert.ok(!html.includes('FOUNDING PROTOTYPE'), 'FOUNDING PROTOTYPE text removed');
+ assert.ok(!html.includes('Every grain goes somewhere'), 'Every grain goes somewhere removed');
+ assert.ok(!html.includes('A colony begins.'), 'A colony begins text removed');
+ assert.ok(!html.includes('UNDERGROUND / TOP-DOWN HEX VIEW'), 'view-label removed');
+
+ // Top header brand removed from index.html header
+ assert.ok(!html.includes('<header>\n  <div class="brand">'), 'brand removed from main header in index.html');
+
+ // Title moved to settings modal
+ assert.ok(settingsJs.includes('settings-title') && settingsJs.includes('UNDERFOOT'), 'settings modal includes UNDERFOOT title');
+ assert.ok(settingsJs.includes('brand-mark') && settingsJs.includes('⬢'), 'settings modal includes brand mark');
+
+ // Dev bubble button present in index.html and styled
+ assert.ok(html.includes('id="debug-toggle"') && html.includes('dev-bubble'), 'debug-toggle dev bubble in index.html');
+ assert.ok(hexCss.includes('.dev-bubble'), 'dev bubble styling exists in hex-ui.css');
+ assert.ok(settingsJs.includes('toggleDevMode') && settingsJs.includes('updateDevBubble'), 'settings.js manages dev toggle');
+
+ // Caste hover legend in ant-counter
+ assert.ok(html.includes('ant-counter-tooltip'), 'ant-counter contains tooltip legend');
+ for (const abbr of ['Q', 'MN', 'WK', 'MD', 'SL', 'MJ', 'SM']) {
+  assert.ok(html.includes(`>${abbr}<`), `ant-counter tooltip explains ${abbr}`);
+ }
+ assert.ok(appJs.includes('ant-counter-badges'), 'app.js preserves ant-counter-badges');
+
+ // Brood points visual style matching evolution points
+ assert.ok(css.includes('#evolution,.stats #brood-points') || (css.includes('#evolution') && css.includes('#brood-points')), 'brood-points styled with evolution');
+
+ // Save, load, new colony relocated to settings
+ assert.ok(settingsJs.includes('Colony Management'), 'settings.js renders Colony Management');
+ assert.ok(settingsJs.includes('id="save"') && settingsJs.includes('id="load"') && settingsJs.includes('id="new"'), 'settings.js has save/load/new');
+ assert.ok(appJs.includes('AntGame.Settings.onSaveColony'), 'app.js links onSaveColony');
+ assert.ok(appJs.includes('AntGame.Settings.onLoadColony'), 'app.js links onLoadColony');
+ assert.ok(appJs.includes('AntGame.Settings.onNewColony'), 'app.js links onNewColony');
+});
+
+test('water transport paths to nest without clipping, and low need sources are rejected', () => {
+ const s = new Simulation(700);
+ const worker = s.addAnt('worker', s.nest.x + 2, s.nest.y);
+ worker.carry = { type: 'water', amount: 5 };
+ s.toStore(worker);
+ assert.notEqual(worker.state, 'blocked');
+ assert.equal(worker.destination?.kind, 'queen');
+ assert.deepEqual(worker.destination?.point, s.nest);
+ advance(s, 2);
+ assert.ok(worker.alive);
+
+ // Check low source filter
+ const lowWater = s.world.peek(s.nest.x + 3, s.nest.y);
+ lowWater.solid = false; lowWater.water = 0.1; lowWater.discovered = true;
+ s.world.activeWater.add(AntGame.key(lowWater.x, lowWater.y));
+ const thirsty = s.addAnt('worker', s.nest.x + 2, s.nest.y);
+ thirsty.waterNeed = 10;
+ const src = s.antNeedSource(thirsty, 'water');
+ assert.ok(!src || (src.cell?.x !== lowWater.x || src.cell?.y !== lowWater.y));
+
+ // Check scaled caste needs
+ const sl = s.addAnt('soldier', s.nest.x, s.nest.y);
+ const mj = s.addAnt('major', s.nest.x, s.nest.y);
+ const sm = s.addAnt('supermajor', s.nest.x, s.nest.y);
+ assert.equal(sl.maxFoodNeed, 125);
+ assert.equal(mj.maxFoodNeed, 200);
+ assert.equal(sm.maxFoodNeed, 300);
+});
 

@@ -62,7 +62,7 @@ class Ecology {
    const c=s.world.cells.get(k);
    if(!c||c.solid||c.isWell||c.zone==='well'||c.staticWater)continue;
    if(c.waterStorage){
-    if(c.water<7){
+    if(c.water<=7){
      const openNeighbors=s.world.neighbors(c.x,c.y).filter(n=>!n.solid&&!n.waterStorage&&n.water>0);
      const space=7-c.water;
      if(space>0.0001&&openNeighbors.length>0){
@@ -79,7 +79,8 @@ class Ecology {
      const lowerNeighbors=s.world.neighbors(c.x,c.y).filter(n=>!n.solid&&n.water<c.water);
      for(const n of lowerNeighbors){
       const nk=key(n.x,n.y);
-      const diff=c.water-n.water;
+      const diff=c.water-Math.max(7,n.water);
+      if(diff<=0)continue;
       const flow=Math.min(diff*.5,Math.min(.4,C.waterFlowRate*dt*4));
       if(flow>0.0001){
        add(k,-flow);
@@ -138,35 +139,52 @@ class Ecology {
    else s.world.activeWater.delete(k);
   }
  }
- static damage(s,a,amount){a.health-=amount*(a.colonyId===1?s.effect('armor'):1);if(a.health<=0)s.kill(a);}
+ static damage(s,a,amount){
+  a.health-=amount*(a.colonyId===1?s.effect('armor'):1);
+  if(a.colonyId===1)AntGame.AudioCoordinator?.play('impactChitin');
+  if(a.health<=0)s.kill(a);
+ }
  static workTarget(s,a,dt){
   const t=s.target(a.task?.targetId);
     const aphid=t?.species==='root_aphid';
     if(!t||(!t.alive&&a.state==='attack')||(a.state==='harvest'&&!aphid&&((t.remaining===undefined&&(!t.food||t.alive))||(t.remaining!==undefined&&t.remaining<=0)))||(aphid&&t.milkCooldown>0)){a.state='idle';a.task=null;return;}
   a.timer-=dt;
-  if(distance(a,t)>1.7){
-   if(!a.path.length){
-    const p=pathfind(s.world,a,{x:Math.round(t.x),y:Math.round(t.y)});
-    if(p===null){a.state='idle';a.task=null;if(a.colonyId===1)s.emit('Target blocked: no accessible route.');}
-    else s.setPath(a,p,a.state);
+   if(distance(a,t)>1.7){
+    const targetCell = { x: Math.round(t.x), y: Math.round(t.y) };
+    const lastPathCell = a.path.length ? a.path[a.path.length - 1] : null;
+    const pathStale = !lastPathCell || AntGame.hexDistance(lastPathCell, targetCell) > 1;
+    if(!a.path.length || pathStale){
+     const p=pathfind(s.world,a,targetCell,a.clearanceNeeded||1);
+     if(p && p.length) s.setPath(a,p,a.state);
+     else if(!a.path.length){
+      // Target momentarily blocked; pause briefly and retry pursuit without cancelling order
+      a.timer = 0.5;
+     }
+    }
+    return;
    }
-   return;
-  }
   a.angle=Math.atan2(t.y-a.y,t.x-a.x);
   if(a.timer>0)return;
    if(a.state==='attack'){
     a.timer=.8;
     a.lastStrike=s.time;
+    if(a.colonyId===1){
+     if(a.type==='supermajor'||a.type==='major')AntGame.AudioCoordinator?.play('antBiteSupermajor');
+     else if(a.type==='soldier')AntGame.AudioCoordinator?.play('antBiteSoldier');
+     else AntGame.AudioCoordinator?.play('antBiteWorker');
+    }
     const baseDmg=(a.type==='soldier'||a.type==='major'||a.type==='supermajor')?10:8;
     const damage=baseDmg*(a.colonyId===1?s.effect('attackRate'):1);
     if(t.colonyId){Ecology.damage(s,t,damage);return;}
     t.provoked=true;t.lastAttacker={x:a.x,y:a.y,id:a.id};t.fleeTimer=20;t.fleeDelay=0;t.health-=damage;
+    if(a.colonyId===1)AntGame.AudioCoordinator?.play('impactChitin');
     if(t.health<=0){t.health=0;t.alive=false;t.path=[];t.isMoving=false;t.prevX=t.x;t.prevY=t.y;t.state='dead';t.decay=0;s.emit(`${t.variantName||Species[t.species].name} defeated. Its remains can be harvested.`);a.state='idle';a.task=null;}
     }else{
      a.timer=C.harvestSeconds;
      if(!aphid&&t.species&&!t.alive&&t.food>0&&AntGame.canCarry(a,t)){
       t.carriedBy=a.id;
       a.carry={type:'corpse',creature:t,creatureId:t.id,amount:t.food,foodType:'meat'};
+      if(a.colonyId===1)AntGame.AudioCoordinator?.play('corpsePickup');
       s.toStore(a);
       return;
      }
@@ -294,12 +312,20 @@ class Ecology {
    if(!s.aiEnabled||d.behavior==='anchored')continue;
    c.aiTicks++;c.timer=(c.timer||0)-dt;c.fleeTimer=Math.max(0,(c.fleeTimer||0)-dt);c.fleeDelay=Math.max(0,(c.fleeDelay||0)-dt);
 
-   // Target Detection: Aggressive creatures acquire ants or other living creatures within 14 hexes
+   // Target Detection: Aggressive creatures acquire ants, brood, or other living creatures within 14 hexes
    let near=null,minD=14;
    for(let i=0;i<s.ants.length;i++){
     const p=s.ants[i];if(!p.alive)continue;
     const dist=distance(p,c);
     if(dist<minD){minD=dist;near=p;}
+   }
+   if(s.eggs){
+    for(let i=0;i<s.eggs.length;i++){
+     const b=s.eggs[i];
+     if(b.carriedBy||(b.health!==undefined&&b.health<=0))continue;
+     const dist=distance(b,c);
+     if(dist<minD){minD=dist;near=b;}
+    }
    }
    for(let i=0;i<s.creatures.length;i++){
     const other=s.creatures[i];
@@ -329,14 +355,24 @@ class Ecology {
     const reach=d.reach||1.8;
     if(distance(near,c)<reach){
      if(c.timer<=0){
-      if(near.colonyId){
-       if(near.type!=='soldier'&&s.ants.some(a=>a.alive&&a.colonyId===1&&a.type==='soldier')){
-        near.threatId=c.id;near.task=null;near.held=true;
-        s.route(near,s.nest,'moving');
-        s.emit(`Worker ${near.id} is retreating to report a threat.`);
+      if(near.stage){
+       near.health=(near.health??25)-d.damage;
+       if(near.health<=0){
+        s.eggs.splice(s.eggs.indexOf(near),1);
+        if(near.colonyId===1){
+         s.emit(`A ${near.stage} was devoured by a ${Species[c.species]?.name||'predator'}.`);
+         AntGame.AudioCoordinator?.play('antDeath');
+        }
        }
-       Ecology.damage(s,near,d.damage);
-      }else{
+      }else if(near.colonyId){
+        if(near.type!=='soldier'&&near.type!=='queen'&&s.ants.some(a=>a.alive&&a.colonyId===1&&a.type==='soldier')){
+         near.threatId=c.id;near.task=null;near.held=true;
+         s.route(near,s.nest,'moving');
+         s.emit(`Worker ${near.id} is retreating to report a threat.`);
+         AntGame.AudioCoordinator?.play('antAlarmRetreat');
+        }
+        Ecology.damage(s,near,d.damage);
+       }else{
        near.provoked=true;
        near.lastAttacker={x:c.x,y:c.y,id:c.id};
        near.fleeTimer=20;
@@ -394,7 +430,7 @@ class Ecology {
  }
  // THREAT RESPONSE: a patrol is interrupted as readily as an idle soldier; a
  // reported live predator must not be ignored merely because guards are walking.
-  static reportThreat(s,a){if(!a.threatId)return;const threat=s.creatures.find(c=>c.id===a.threatId&&c.alive);a.threatId=null;a.held=false;if(!threat)return;const soldiers=s.ants.filter(b=>b.alive&&b.colonyId===1&&b.type==='soldier');for(const soldier of soldiers){if(soldier.task?.targetId!==threat.id){soldier.path=[];soldier.task={type:'attack',targetId:threat.id,source:'threat-report'};soldier.state='attack';soldier.timer=0;}}if(soldiers.length)s.emit(`Soldiers respond to the reported threat.`);}
+  static reportThreat(s,a){if(!a.threatId)return;const threat=s.creatures.find(c=>c.id===a.threatId&&c.alive);a.threatId=null;a.held=false;if(!threat)return;const soldiers=s.ants.filter(b=>b.alive&&b.colonyId===1&&b.type==='soldier');for(const soldier of soldiers){if(soldier.task?.targetId!==threat.id){soldier.path=[];soldier.task={type:'attack',targetId:threat.id,source:'threat-report'};soldier.state='attack';soldier.timer=0;}}if(soldiers.length){s.emit(`Soldiers respond to the reported threat.`);AntGame.AudioCoordinator?.play('soldierThreatResponse');}}
   static colonies(s,players,dt){
    for(const col of s.colonies){
     const locals=s.ants.filter(a=>a.alive&&a.colonyId===col.id);
@@ -521,7 +557,7 @@ class Ecology {
    s.discoveries.push(f.id);const message=({water:'Water discovered. Deep flooding can injure ants.',surface:'Daylight! A surface shaft can receive dirt when the pit is full.',abandoned:'An abandoned tunnel has been discovered.',cavity:'A natural cavity has been discovered.',food:'Food discovered. Assign a feeder to gather it.',colony:'Another colony lies beyond this tunnel.','worm-cavity':'An Earthworm cavity has been discovered.','hercules-cavity':'A vast beetle cavity has been discovered.','spider-cavity':'A dark spider lair has been uncovered.','seed-site':'A seed site is crawling with small creatures.','root-vein':'Rotted Root discovered.'})[f.type];if(message)s.emit(message);
   }
   Ecology.water(s,dt);
-  for(const a of s.ants)if(a.alive){const c=s.world.peek(Math.round(a.x),Math.round(a.y));if(c?.water>=C.waterDangerDepth)Ecology.damage(s,a,C.drowningDamage*dt);}
+  for(const a of s.ants)if(a.alive){const c=s.world.peek(Math.round(a.x),Math.round(a.y));if(c?.water>=C.waterDangerDepth&&!c?.waterStorage)Ecology.damage(s,a,C.drowningDamage*dt);}
   s.eggs=s.eggs.filter(e=>(s.world.peek(Math.round(e.x),Math.round(e.y))?.water||0)<C.waterDangerDepth);
   // ROOTS AND WEBS run before creature decisions so their immobilization and
   // habitat changes are visible to AI during the same simulation tick.

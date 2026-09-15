@@ -1,0 +1,23 @@
+#1 ANT WALKING
+ant_footsteps_loop_01.ogg
+ant_footsteps_loop_02.ogg
+
+Playback:
+- select random loop when movement begins
+- random initial playback offset
+- continuously loop while movement remains active
+- stop when movement ends
+- new random selection + offset on next movement period
+
+#2 HEAVY ANT WALKING
+
+- when heavy ant movement begins:
+  - randomly choose loop 01 or 02
+  - choose a random start offset
+  - begin playback
+- while the ant remains moving:
+  - keep looping
+- when movement stops:
+  - stop the sound
+- when movement starts again:
+  - randomly choose a loop and random start offset again

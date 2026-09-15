@@ -19,13 +19,14 @@ AntGame.Config = Object.freeze({
  activationRadius:30, deactivationRadius:90, colonyMinDistance:120, ecologyInterval:0.5,
  waterFlowRate:0.38, waterDangerDepth:6, drowningDamage:18,
  decaySeconds:1500, foodPerHarvest:5, carryCapacity:5, harvestSeconds:1.2,
- startingFood:200, startingWater:100, startingFoodCapacity:200, startingWaterCapacity:100,
- startingColonyCap:10, queenHealth:1000, foodDrainPerSecond:200/900,
+ startingFood:300, startingWater:100, startingFoodCapacity:300, startingWaterCapacity:100,
+ queenFoodCapacity:200, queenWaterCapacity:100,
+ startingColonyCap:10, queenHealth:1000, foodDrainPerSecond:100/900,
  waterDrainPerSecond:90/900, eggFoodCost:10, eggWaterCost:2,
  foodCriticalRatio:.15, waterCriticalRatio:.10, feederNeedRatio:.90,
  feederRange:70, waterDropValue:5, buildFoodCost:3, buildDirtCost:2, buildSeconds:2.5,
- // ANT NEEDS: a 50-point supply lasts 12 minutes for food and 8 minutes for water.
- antFoodCapacity:50, antWaterCapacity:50, antFoodDrainPerSecond:50/(12*60), antWaterDrainPerSecond:50/(8*60), antFoodNeedRatio:.10, antWaterNeedRatio:.20, antStarvationDamagePerSecond:2, antDehydrationDamagePerSecond:3,
+ // ANT NEEDS: a 50-point supply lasts 25 minutes for food and 18 minutes for water.
+ antFoodCapacity:50, antWaterCapacity:50, antFoodDrainPerSecond:50/(25*60), antWaterDrainPerSecond:50/(18*60), antFoodNeedRatio:.10, antWaterNeedRatio:.20, antStarvationDamagePerSecond:2, antDehydrationDamagePerSecond:3, idleReleaseSeconds:10.0,
  foodStoragePerTile:5, spoilStoragePerTile:5, waterStoragePerTile:7, enemyActivationRange:80,
  // CREATURE ECOLOGY: timers and distances are kept here so every generated
  // creature uses the same readable balance rules.
@@ -34,7 +35,13 @@ AntGame.Config = Object.freeze({
  spiderWebAttackCooldown:50, spiderEggHatchTime:210, babySpiderMatureTime:900,
  rootWoodDurability:500, rootAphidBiteInterval:8, rootAphidMilkCooldown:60,
  queenPosition:{x:-9,y:0}, foodPosition:{x:-9,y:2},
- casteChances:{worker:0.65,minor:0.10,media:0.10,soldier:0.10,major:0.03,supermajor:0.02,drone:0.00,princess:0.00,queen:0.00}
+ casteChances:{worker:0.65,minor:0.10,media:0.10,soldier:0.10,major:0.03,supermajor:0.02,drone:0.00,princess:0.00,queen:0.00},
+ brood:{
+  eggDuration:45, larvaDuration:180, pupaDuration:85,
+  larvaFoodRequired:30, baseFeedAmount:5, health:25, waterDangerDepth:6,
+  hatcheryFloorPerEgg:3, costHatcheryFloor:{food:5,dirt:3}, costHatcheryWall:{food:5,dirt:3},
+  pointsPerDay:{worker:1,minor:1,media:1,soldier:1,drone:1,princess:1,major:2,supermajor:3}
+ }
 });
 AntGame.Random = class {
  constructor(seed){this.state=seed>>>0;}

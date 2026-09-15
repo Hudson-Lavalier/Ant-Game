@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 globalThis.window = globalThis;
 globalThis.devicePixelRatio = 1;
 
-for (const f of ['config', 'data', 'world', 'ecology', 'simulation', 'renderer']) {
+for (const f of ['config', 'data', 'world', 'climate', 'audio', 'ecology', 'brood', 'tasks', 'construction', 'inventory', 'simulation', 'creatures', 'renderer']) {
   require('../src/' + f + '.js');
 }
 

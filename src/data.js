@@ -34,10 +34,10 @@ AntGame.Species = {
  grub:{name:'Beetle Grub',health:80,speed:3.2,damage:7,behavior:'defensive',baseFood:240,color:'#d8ca98',clearance:2,excavator:true,mineTime:1.8,activation:30,deactivation:90,visualScale:1,bodyWidth:1.9,bodyLength:5.8,segmentSpacing:.62},
  weevil:{name:'Bull Weevil',health:55,speed:3.8,damage:6,behavior:'defensive',baseFood:85,color:'#815a39',clearance:1,activation:30,deactivation:90,visualScale:.30,bodyWidth:.56,bodyLength:1.5},
  hercules:{name:'Hercules Beetle',health:650,speed:2.6,damage:30,behavior:'aggressive',baseFood:350,color:'#c7b87b',clearance:8,reach:3.3,visualScale:1.05,activation:30,deactivation:90,bodyWidth:7.7,bodyLength:17.3},
- mite:{name:'Mite',health:5,speed:4.5,damage:2,behavior:'aggressive',baseFood:1,color:'#a54c45',clearance:1,activation:30,deactivation:90,visualScale:.45,bodyWidth:.32,bodyLength:.48},
- isopod:{name:'Isopod',health:40,speed:2.8,damage:0,behavior:'flee',baseFood:5,color:'#74766b',clearance:2,activation:30,deactivation:90,visualScale:.60,bodyWidth:1.18,bodyLength:2.4},
+ mite:{name:'Mite',health:5,speed:4.5,damage:2,behavior:'aggressive',baseFood:8,color:'#a54c45',clearance:1,activation:30,deactivation:90,visualScale:.45,bodyWidth:.32,bodyLength:.48},
+ isopod:{name:'Isopod',health:40,speed:2.8,damage:0,behavior:'flee',baseFood:45,color:'#74766b',clearance:2,activation:30,deactivation:90,visualScale:.60,bodyWidth:1.18,bodyLength:2.4},
  spider:{name:'Spider',health:500,speed:3.4,damage:22,behavior:'aggressive',baseFood:90,color:'#443936',clearance:3,visualScale:.95,activation:30,deactivation:90,bodyWidth:2.9,bodyLength:5.35},
- baby_spider:{name:'Baby Spider',health:40,speed:2.8,damage:6,behavior:'aggressive',baseFood:8,color:'#7c6c61',clearance:1,visualScale:.38,activation:30,deactivation:90,bodyWidth:1.05},
+ baby_spider:{name:'Baby Spider',health:40,speed:2.8,damage:6,behavior:'aggressive',baseFood:15,color:'#7c6c61',clearance:1,visualScale:.38,activation:30,deactivation:90,bodyWidth:1.05},
  root_aphid:{name:'Root Aphid',health:12,speed:0,damage:0,behavior:'anchored',baseFood:0,color:'#c8a957',clearance:1,activation:0,deactivation:Infinity,freezeExempt:true,visualScale:.35,bodyWidth:.47}
  ,// SAVE COMPATIBILITY: pre-cleanup saves may still name this former entry.
  beetle:{name:'Bull Weevil',health:55,speed:0,damage:6,behavior:'aggressive',baseFood:85,color:'#815a39',clearance:1,activation:30,deactivation:90}
@@ -80,14 +80,15 @@ AntGame.canCarry = function(ant, obj){
 
 AntGame.AntActions = [
  {id:'dig',name:'Dig',desc:'Autonomous digging and tunnel excavation'},
- {id:'carry',name:'Carry',desc:'Autonomous physical hauling of bodies and seeds'},
- {id:'harvest',name:'Harvest',desc:'Autonomous food and resource harvesting'},
- {id:'feed',name:'Feed',desc:'Autonomous feeder processing and queen delivery'},
- {id:'gatherFood',name:'Gather Food',desc:'Autonomous foraging for edible food'},
- {id:'gatherWater',name:'Gather Water',desc:'Autonomous foraging for colony water'},
  {id:'build',name:'Build',desc:'Autonomous chamber construction'},
+ {id:'harvest',name:'Harvest',desc:'Autonomous food gathering and aphid milking'},
+ {id:'carry',name:'Carry',desc:'Autonomous hauling of insect corpses and seeds to storage'},
  {id:'haulSoil',name:'Haul Soil',desc:'Autonomous soil transport to spoil pits'},
- {id:'combat',name:'Combat',desc:'Autonomous threat defense and guard duty'}
+ {id:'combat',name:'Combat',desc:'Autonomous guard duty and threat defense'},
+ {id:'transportBrood',name:'Transport Brood',desc:'Autonomous transport of brood to safe hatchery rooms'},
+ {id:'feedLarvae',name:'Feed Larvae',desc:'Autonomous feeding of developing larvae with food rations'},
+ {id:'selfFeed',name:'Self Feed',desc:'Satisfy personal hunger: seek and eat food when hungry'},
+ {id:'selfWater',name:'Self Water',desc:'Satisfy personal thirst: seek and drink water when thirsty'}
 ];
 
 AntGame.TaskHierarchy = [
@@ -97,6 +98,8 @@ AntGame.TaskHierarchy = [
  {id:'feedQueen',name:'Feed Queen',category:'labor',desc:'Deliver food to Queen from loose rations or food stores (Feeder only)'},
  {id:'queenWater',name:'Queen Water',category:'labor',desc:'Deliver water to Queen or reservoirs (Feeder only)'},
  {id:'chewFood',name:'Chew Food',category:'labor',desc:'Chew and process stored whole corpses and seeds into edible food (Feeder only)'},
+ {id:'feedLarvae',name:'Feed Larvae',category:'labor',desc:'Deliver food rations to growing larvae (Brood Helper / Feeder)'},
+ {id:'transportBrood',name:'Transport Brood',category:'labor',desc:'Relocate misplaced or vulnerable brood to designated hatcheries (Brood Helper / Feeder)'},
  {id:'carry',name:'Carry',category:'labor',desc:'Transport whole corpses and seeds to food storage'},
  {id:'harvest',name:'Harvest',category:'labor',desc:'Gather loose food resources and milk root aphids'},
  {id:'build',name:'Build',category:'labor',desc:'Construct designated chamber infrastructure'},
@@ -105,15 +108,16 @@ AntGame.TaskHierarchy = [
 ];
 
 AntGame.DefaultCastePriorities = {
- feeder:     {selfFeed:1,selfWater:1,combat:9,chewFood:2,feedQueen:3,queenWater:3,carry:5,harvest:5,build:8,dig:8,haulSoil:7},
- worker:     {selfFeed:1,selfWater:1,combat:8,feedQueen:3,queenWater:3,chewFood:10,carry:4,harvest:4,build:5,dig:5,haulSoil:6},
- minor:      {selfFeed:1,selfWater:1,combat:9,feedQueen:4,queenWater:4,chewFood:10,carry:5,harvest:3,build:10,dig:10,haulSoil:4},
- media:      {selfFeed:1,selfWater:1,combat:6,feedQueen:3,queenWater:3,chewFood:10,carry:4,harvest:4,build:5,dig:5,haulSoil:6},
- major:      {selfFeed:1,selfWater:1,combat:3,feedQueen:5,queenWater:5,chewFood:10,carry:4,harvest:5,build:6,dig:4,haulSoil:7},
- soldier:    {selfFeed:1,selfWater:1,combat:1,feedQueen:8,queenWater:8,chewFood:10,carry:7,harvest:7,build:10,dig:10,haulSoil:8},
- supermajor: {selfFeed:1,selfWater:1,combat:2,feedQueen:6,queenWater:6,chewFood:10,carry:3,harvest:6,build:6,dig:4,haulSoil:7},
- queen:      {selfFeed:1,selfWater:1,combat:10,feedQueen:10,queenWater:10,chewFood:10,carry:10,harvest:10,build:10,dig:10,haulSoil:10},
- princess:   {selfFeed:1,selfWater:1,combat:10,feedQueen:10,queenWater:10,chewFood:10,carry:10,harvest:10,build:10,dig:10,haulSoil:10},
- drone:      {selfFeed:1,selfWater:1,combat:10,feedQueen:10,queenWater:10,chewFood:10,carry:10,harvest:10,build:10,dig:10,haulSoil:10}
+ brood_helper:{selfFeed:1,selfWater:1,combat:9,feedLarvae:2,transportBrood:3,chewFood:5,feedQueen:6,queenWater:6,carry:7,harvest:7,build:8,dig:8,haulSoil:9},
+ feeder:     {selfFeed:1,selfWater:1,combat:9,chewFood:2,feedQueen:3,queenWater:3,feedLarvae:4,transportBrood:4,carry:5,harvest:5,build:8,dig:8,haulSoil:7},
+ worker:     {selfFeed:1,selfWater:1,combat:8,feedQueen:3,queenWater:3,chewFood:10,feedLarvae:10,transportBrood:10,carry:4,harvest:4,build:5,dig:5,haulSoil:6},
+ minor:      {selfFeed:1,selfWater:1,combat:9,feedQueen:4,queenWater:4,chewFood:10,feedLarvae:10,transportBrood:10,carry:5,harvest:3,build:10,dig:10,haulSoil:4},
+ media:      {selfFeed:1,selfWater:1,combat:6,feedQueen:3,queenWater:3,chewFood:10,feedLarvae:10,transportBrood:10,carry:4,harvest:4,build:5,dig:5,haulSoil:6},
+ major:      {selfFeed:1,selfWater:1,combat:3,feedQueen:5,queenWater:5,chewFood:10,feedLarvae:10,transportBrood:10,carry:4,harvest:5,build:6,dig:4,haulSoil:7},
+ soldier:    {selfFeed:1,selfWater:1,combat:1,feedQueen:8,queenWater:8,chewFood:10,feedLarvae:10,transportBrood:10,carry:7,harvest:7,build:10,dig:10,haulSoil:8},
+ supermajor: {selfFeed:1,selfWater:1,combat:2,feedQueen:6,queenWater:6,chewFood:10,feedLarvae:10,transportBrood:10,carry:3,harvest:6,build:6,dig:4,haulSoil:7},
+ queen:      {selfFeed:1,selfWater:1,combat:10,feedQueen:10,queenWater:10,chewFood:10,feedLarvae:10,transportBrood:10,carry:10,harvest:10,build:10,dig:10,haulSoil:10},
+ princess:   {selfFeed:1,selfWater:1,combat:10,feedQueen:10,queenWater:10,chewFood:10,feedLarvae:10,transportBrood:10,carry:10,harvest:10,build:10,dig:10,haulSoil:10},
+ drone:      {selfFeed:1,selfWater:1,combat:10,feedQueen:10,queenWater:10,chewFood:10,feedLarvae:10,transportBrood:10,carry:10,harvest:10,build:10,dig:10,haulSoil:10}
 };
 
