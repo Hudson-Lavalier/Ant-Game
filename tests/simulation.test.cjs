@@ -410,3 +410,41 @@ test('water transport paths to nest without clipping, and low need sources are r
  assert.equal(sm.maxFoodNeed, 300);
 });
 
+test('feeder ant prioritizes queen water with max priority and saves dehydrating queen', () => {
+ const s = new Simulation(1500);
+ const w = s.addAnt('worker', s.nest.x + 1, s.nest.y);
+ s.setFeeder(w);
+ const q = s.queen();
+ q.water = 10; // Dehydrated!
+ s.water = 50; // Colony has stored water
+ s.setCastePriority('feeder', 'queenWater', 1);
+ s.setCastePriority('feeder', 'chewFood', 3);
+ s.setCastePriority('feeder', 'feedQueen', 4);
+
+ // Ensure feeder selects queenWater
+ s.assign(w);
+ assert.equal(w.task?.type, 'feed-water');
+ 
+ // Advance simulation and verify queen water increases
+ advance(s, 2);
+ assert.ok(q.water > 10, 'Queen water should have increased');
+
+ // Test emergency interrupt when chewing food
+ q.water = 100;
+ s.water = s.queenWaterCapacity();
+ s.food = 100;
+ const corpse = { id: 'corpse-feeder-test', species: 'mite', x: s.nest.x + 1, y: s.nest.y, alive: false, food: 50, inStorage: true, storageColonyId: 1 };
+ s.creatures.push(corpse);
+ s.setCastePriority('feeder', 'chewFood', 1);
+ s.setCastePriority('feeder', 'queenWater', 5);
+ s.assign(w);
+ assert.equal(w.state, 'processing');
+
+ // Dehydrate queen to critical level and advance
+ q.water = 15;
+ s.update(1 / 30);
+ // Feeder should interrupt processing to save queen
+ assert.equal(w.state, 'idle');
+ s.assign(w);
+ assert.equal(w.task?.type, 'feed-water');
+});

@@ -134,18 +134,32 @@ class TaskEngine {
    sim.route(a, { x: Math.round(chosen.enemy.x), y: Math.round(chosen.enemy.y) }, 'attack');
    return;
   }
-  if (chosen.type === 'feedQueen' && chosen.source) {
-   const p = chosen.source.point || { x: Math.round(chosen.source.x), y: Math.round(chosen.source.y) };
-   a.task = { type: 'feed-food', targetId: chosen.source.id || key(chosen.source.x, chosen.source.y), sourceKind: chosen.source.feedKind, source: chosen.source };
-   sim.route(a, p, 'feeding-food');
-   return;
-  }
-  if (chosen.type === 'queenWater' && chosen.source) {
-   const p = chosen.source.point || { x: Math.round(chosen.source.x), y: Math.round(chosen.source.y) };
-   a.task = { type: 'feed-water', targetId: chosen.source.id || key(chosen.source.x, chosen.source.y), sourceKind: chosen.source.feedKind, source: chosen.source };
-   sim.route(a, p, 'feeding-water');
-   return;
-  }
+   if (chosen.type === 'feedQueen' && chosen.source) {
+    const p = chosen.source.point || { x: Math.round(chosen.source.x), y: Math.round(chosen.source.y) };
+    a.task = { type: 'feed-food', targetId: chosen.source.id || key(chosen.source.x, chosen.source.y), sourceKind: chosen.source.feedKind, source: chosen.source };
+    if (!sim.route(a, p, 'feeding-food')) {
+     if (hexDistance(a, p) <= 1.2) {
+      a.state = 'feeding-food';
+      sim.pickupFeed(a);
+     } else {
+      a.state = 'idle'; a.task = null; a.timer = 0.5;
+     }
+    }
+    return;
+   }
+   if (chosen.type === 'queenWater' && chosen.source) {
+    const p = chosen.source.point || { x: Math.round(chosen.source.x), y: Math.round(chosen.source.y) };
+    a.task = { type: 'feed-water', targetId: chosen.source.id || key(chosen.source.x, chosen.source.y), sourceKind: chosen.source.feedKind, source: chosen.source };
+    if (!sim.route(a, p, 'feeding-water')) {
+     if (hexDistance(a, p) <= 1.2) {
+      a.state = 'feeding-water';
+      sim.pickupFeed(a);
+     } else {
+      a.state = 'idle'; a.task = null; a.timer = 0.5;
+     }
+    }
+    return;
+   }
   if (chosen.type === 'chewFood' && chosen.processObj) {
    const targetObj = chosen.processObj;
    targetObj.processingFeederId = a.id;
@@ -240,7 +254,10 @@ class TaskEngine {
 
   // 4. Feed Queen
   if (a.feeder && a.actions?.feed !== false) {
-   if (sim.feederNeed() === 'food') {
+   const q = sim.queen();
+   const queenNeedsFood = q && (q.food ?? 200) < (q.maxFood || 200) * (C.feederNeedRatio || 0.9);
+   const colonyNeedsFood = sim.food < sim.foodCapacity() * (C.feederNeedRatio || 0.9);
+   if (queenNeedsFood || colonyNeedsFood) {
     const src = sim.feederSource(a, 'food');
     if (src) {
      const p = src.point || { x: Math.round(src.x), y: Math.round(src.y) };
@@ -251,7 +268,11 @@ class TaskEngine {
 
   // 5. Queen Water
   if (a.feeder && a.actions?.feed !== false) {
-   if (sim.feederNeed() === 'water') {
+   const q = sim.queen();
+   const queenNeedsWater = q && (q.water ?? 100) < (q.maxWater || 100) * (C.feederNeedRatio || 0.9);
+   const colonyNeedsWater = (sim.water < sim.queenWaterCapacity() * (C.feederNeedRatio || 0.9)) ||
+    (sim.waterTarget === 'reservoir' && sim.reservoirWater() < sim.waterStore.tiles.length * C.waterStoragePerTile);
+   if (queenNeedsWater || colonyNeedsWater) {
     const src = sim.feederSource(a, 'water');
     if (src) {
      const p = src.point || { x: Math.round(src.x), y: Math.round(src.y) };
@@ -343,6 +364,15 @@ class TaskEngine {
 
   candidates.sort((t1, t2) => {
    const role = a.broodHelper ? 'brood_helper' : a.feeder ? 'feeder' : a.type;
+   const q = sim.queen();
+   if (a.feeder && q) {
+    const qDehydrated = (q.water ?? 100) <= 20;
+    const qStarving = (q.food ?? 200) <= 20;
+    if (qDehydrated && t1.type === 'queenWater' && t2.type !== 'queenWater') return -1;
+    if (qDehydrated && t2.type === 'queenWater' && t1.type !== 'queenWater') return 1;
+    if (qStarving && t1.type === 'feedQueen' && t2.type !== 'feedQueen') return -1;
+    if (qStarving && t2.type === 'feedQueen' && t1.type !== 'feedQueen') return 1;
+   }
    const p1 = sim.getCastePriority(role, t1.type);
    const p2 = sim.getCastePriority(role, t2.type);
    if (p1 !== p2) return p1 - p2;

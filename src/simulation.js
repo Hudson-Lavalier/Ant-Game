@@ -320,6 +320,11 @@ class Simulation {
    }
    if(a.carry?.type==='water'){
     if(a.colonyId===1){
+      const q=this.queen();
+      const queenNeedsWater=q&&(q.water??100)<(q.maxWater||100);
+      if(a.feeder||a.task?.type==='feed-water'||queenNeedsWater){
+       return {point:this.nest,kind:'queen'};
+      }
       if(this.waterTarget==='reservoir'){const r=this.reservoirDestination(a);if(r)return r;}
       return {point:this.nest,kind:'queen'};
     }else{
@@ -416,24 +421,50 @@ class Simulation {
   }
   executeChosenTask(a,chosen){return AntGame.TaskEngine.executeChosenTask(this,a,chosen);}
   assign(a){return AntGame.TaskEngine.assign(this,a);}
- feederNeed(){if(this.food<this.foodCapacity()*C.feederNeedRatio)return 'food';if(this.waterTarget==='reservoir'&&this.reservoirWater()<this.waterStore.tiles.length*C.waterStoragePerTile)return 'water';if(this.water<this.waterCapacity()*C.feederNeedRatio)return 'water';return null;}
- // FEEDER TARGETING: food sources include discovered loose food and edible corpses.
+  feederNeed(){
+   const q=this.queen();
+   if(q&&(q.water??100)<=20)return 'water';
+   if(q&&(q.food??200)<=20)return 'food';
+   if(q&&(q.water??100)<(q.maxWater||100)*(C.feederNeedRatio||0.9))return 'water';
+   if(q&&(q.food??200)<(q.maxFood||200)*(C.feederNeedRatio||0.9))return 'food';
+   if(this.waterTarget==='reservoir'&&this.reservoirWater()<this.waterStore.tiles.length*C.waterStoragePerTile)return 'water';
+   if(this.water<this.waterCapacity()*(C.feederNeedRatio||0.9))return 'water';
+   if(this.food<this.foodCapacity()*(C.feederNeedRatio||0.9))return 'food';
+   return null;
+  }
+  // FEEDER TARGETING: food sources include discovered loose food and edible corpses.
   feederSource(a,need){
    if(need==='food'){
     if(a.actions?.gatherFood===false||a.actions?.selfFeed===false)return null;
+    const q=this.queen();
+    if(q&&(q.food??200)<(q.maxFood||200)&&this.food>0){
+     const pt=AntGame.Inventory?.getFoodSourceTile(this,a);
+     if(pt&&pathfind(this.world,a,pt)!==null)return {point:pt,x:pt.x,y:pt.y,feedKind:'colony-food',kind:'colony-food'};
+    }
     const visible=r=>this.world.peek(Math.round(r.x),Math.round(r.y))?.discovered&&dist(a,r)<=C.feederRange;
     const looseFood=this.resources.filter(r=>r.remaining>0&&!r.inStorage&&!r.carriedBy&&(!r.reservedFor||r.reservedFor===a.id)&&visible(r)).map(r=>({...r,feedKind:'resource'}));
     const corpses=this.creatures.filter(c=>!c.alive&&c.food>0&&!c.inStorage&&!c.carriedBy&&(!c.reservedFor||c.reservedFor===a.id)&&visible(c)).map(c=>({...c,feedKind:'corpse'}));
     return [...looseFood,...corpses].sort((x,y)=>dist(a,x)-dist(a,y))[0];
    }
    if(a.actions?.gatherWater===false||a.actions?.selfWater===false)return null;
-  const cells=[...this.world.activeWater].map(k=>this.world.cells.get(k)).filter(c=>c&&c.discovered&&c.water>.01&&!c.waterStorage&&dist(a,c)<=C.feederRange);
-  for(const cell of cells){
-   const point=pathfind(this.world,a,cell)?cell:(this.world.faces(cell).find(n=>pathfind(this.world,a,n)!=null)||cell);
-   if(pathfind(this.world,a,point)!=null)return {...cell,point};
+   const q=this.queen();
+   if(q&&(q.water??100)<(q.maxWater||100)&&this.water>0){
+    if(pathfind(this.world,a,this.nest)!==null)return {point:this.nest,x:this.nest.x,y:this.nest.y,feedKind:'colony-water',kind:'colony-water'};
+   }
+   if(this.reservoirWater()>0){
+    const res=AntGame.Inventory?.reservoirSource(this,a);
+    if(res)return {...res.tile,point:res.point,feedKind:'reservoir',kind:'reservoir',isReservoir:true};
+   }
+   const cells=[...this.world.activeWater].map(k=>this.world.cells.get(k)).filter(c=>c&&c.discovered&&c.water>=0.35&&!c.waterStorage&&dist(a,c)<=C.feederRange);
+   if(!cells.length){
+    cells.push(...[...this.world.activeWater].map(k=>this.world.cells.get(k)).filter(c=>c&&c.discovered&&c.water>0.01&&!c.waterStorage&&dist(a,c)<=C.feederRange));
+   }
+   for(const cell of cells){
+    const point=pathfind(this.world,a,cell)?cell:(this.world.faces(cell).find(n=>pathfind(this.world,a,n)!=null)||cell);
+    if(pathfind(this.world,a,point)!=null)return {...cell,point,feedKind:'water'};
+   }
+   return null;
   }
-  return null;
- }
  assignFeeder(a){if(a.actions?.feed===false)return false;const need=this.feederNeed();if(!need)return false;const source=this.feederSource(a,need);if(!source)return false;const p=source.point||{x:Math.round(source.x),y:Math.round(source.y)};if(pathfind(this.world,a,p)===null)return false;a.task={type:`feed-${need}`,targetId:source.id||key(source.x,source.y),sourceKind:source.feedKind,source};this.route(a,p,`feeding-${need}`);return true;}
  // ANT HUNGER AND THIRST: personal supplies drain independently from queen stores for all colonies.
  drainAntNeeds(a,dt){
@@ -675,33 +706,73 @@ class Simulation {
     else if(a.pendingTask){a.task=a.pendingTask;delete a.pendingTask;a.state=a.task.type;}
     else if(a.task?.type==='harvest')a.state='harvest';
    }
-   pickupFeed(a){
-    const t=a.task?.source;const maxCap=a.maxCarry||C.carryCapacity;
-    if(a.task?.type==='feed-food'){
-     const corpse=a.task.sourceKind==='corpse'?this.creatures.find(x=>x.id===a.task.targetId):null,r=corpse||this.resources.find(x=>x.id===a.task.targetId),remaining=corpse?.food??r?.remaining;
-     if(!r||remaining<=0){a.state='idle';return;}
-     if(corpse&&corpse.species&&canCarry(a,corpse)){
-      corpse.carriedBy=a.id;
-      a.carry={type:'corpse',creature:corpse,creatureId:corpse.id,amount:corpse.food,foodType:'meat'};
-      if(a.colonyId===1)AntGame.AudioCoordinator?.play('corpsePickup');
-      this.toStore(a);
-      return;
+    pickupFeed(a){
+     const t=a.task?.source;const maxCap=a.maxCarry||C.carryCapacity;
+     if(t?.kind==='colony-water'||t?.feedKind==='colony-water'){
+      const q=this.queen();
+      if(q&&this.water>0){
+       const take=Math.min(C.waterDropValue||20,this.water,(q.maxWater||100)-(q.water||0));
+       if(take>0){
+        this.spendWater(take);
+        q.water=Math.min(q.maxWater||100,(q.water||0)+take);
+        AntGame.AudioCoordinator?.play('antDrink');
+        this.emit(`Feeder hydrated the queen (+${Math.round(take)} water).`);
+       }
+      }
+      a.state='idle';a.task=null;return;
      }
-     const take=corpse?Math.min(maxCap,corpse.food):Math.min(maxCap,r.remaining);
-     if(corpse)corpse.food-=take;else{r.remaining-=take;r.decay=0;}
-     a.carry={type:'food',amount:take,foodType:corpse?'meat':r.foodType};
-    }else{
-     const c=this.world.peek(t.x,t.y);
-     if(!c||c.water<=.01){a.state='idle';return;}
-     const avail=(c.water/7)*100,take=Math.min(maxCap,C.waterDropValue,avail);
-     if(take<=0){a.state='idle';return;}
-     c.water=Math.max(0,c.water-(take/100)*7);
-     if(c.water<=.0001){c.water=0;this.world.activeWater.delete(key(c.x,c.y));}
-     a.carry={type:'water',amount:take};
-     if(a.colonyId===1)AntGame.AudioCoordinator?.play('waterDropletExtract');
+     if(t?.kind==='reservoir'||t?.isReservoir){
+      const tile=t.tile||t;
+      const take=Math.min(C.waterDropValue||20,tile.water||0);
+      if(take>0){
+       tile.water=Math.max(0,(tile.water||0)-take);
+       AntGame.Inventory?.takeItems(tile.items||[],take);
+       a.carry={type:'water',amount:take};
+       if(this.waterStore)this.waterStore.used=AntGame.Inventory?.reservoirWater(this);
+       if(a.colonyId===1)AntGame.AudioCoordinator?.play('waterDropletExtract');
+       this.toStore(a);
+       return;
+      }else{
+       a.state='idle';a.task=null;return;
+      }
+     }
+     if(t?.kind==='colony-food'||t?.feedKind==='colony-food'){
+      const q=this.queen();
+      const take=Math.min(maxCap,this.food,(q?.maxFood||200)-(q?.food||0));
+      if(take>0){
+       this.spendFood(take);
+       a.carry={type:'food',amount:take,foodType:'ration'};
+       this.toStore(a);
+       return;
+      }else{
+       a.state='idle';a.task=null;return;
+      }
+     }
+     if(a.task?.type==='feed-food'){
+      const corpse=a.task.sourceKind==='corpse'?this.creatures.find(x=>x.id===a.task.targetId):null,r=corpse||this.resources.find(x=>x.id===a.task.targetId),remaining=corpse?.food??r?.remaining;
+      if(!r||remaining<=0){a.state='idle';return;}
+      if(corpse&&corpse.species&&canCarry(a,corpse)){
+       corpse.carriedBy=a.id;
+       a.carry={type:'corpse',creature:corpse,creatureId:corpse.id,amount:corpse.food,foodType:'meat'};
+       if(a.colonyId===1)AntGame.AudioCoordinator?.play('corpsePickup');
+       this.toStore(a);
+       return;
+      }
+      const take=corpse?Math.min(maxCap,corpse.food):Math.min(maxCap,r.remaining);
+      if(corpse)corpse.food-=take;else{r.remaining-=take;r.decay=0;}
+      a.carry={type:'food',amount:take,foodType:corpse?'meat':r.foodType};
+     }else{
+      const c=this.world.peek(t.x,t.y);
+      if(!c||c.water<=.01){a.state='idle';return;}
+      const avail=(c.water/7)*100,take=Math.min(maxCap,C.waterDropValue,avail);
+      if(take<=0){a.state='idle';return;}
+      c.water=Math.max(0,c.water-(take/100)*7);
+      if(c.water<=.0001){c.water=0;this.world.activeWater.delete(key(c.x,c.y));}
+      a.carry={type:'water',amount:take};
+      if(a.colonyId===1)AntGame.AudioCoordinator?.play('waterDropletExtract');
+     }
+     this.toStore(a);
     }
-    this.toStore(a);
-   }
   updateWorker(a,dt){
    if(a.state==='to-process'){
     const targetObj=a.task?.source||this.creatures.find(c=>c.id===a.task?.targetId)||this.resources.find(r=>r.id===a.task?.targetId);
@@ -723,6 +794,11 @@ class Simulation {
     const colId=a.colonyId||1;
     const targetObj=a.task?.source||this.creatures.find(c=>c.id===a.task?.targetId)||this.resources.find(r=>r.id===a.task?.targetId);
     if(!targetObj||(targetObj.food<=0&&targetObj.remaining<=0)){
+     if(targetObj?.processingFeederId===a.id)targetObj.processingFeederId=null;
+     a.state='idle';a.task=null;return;
+    }
+    const q=this.queen();
+    if(q&&((q.water??100)<=20||(q.food??200)<=20)){
      if(targetObj?.processingFeederId===a.id)targetObj.processingFeederId=null;
      a.state='idle';a.task=null;return;
     }
