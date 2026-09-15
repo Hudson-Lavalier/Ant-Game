@@ -25,6 +25,19 @@ class AudioCoordinator {
   this.activeLoops = new Map();
   this.unlocked = false;
   this.lastPlayed = [];
+  this.cueCooldowns = {
+   antEat: 350,
+   antDrink: 350,
+   feederChewFood: 300,
+   waterDropletExtract: 250,
+   corpsePickup: 250,
+   corpseStore: 250,
+   seedStore: 250,
+   soilDropPit: 200,
+   soilDropFloor: 200,
+   default: 75
+  };
+  this.lastCuePlayTime = new Map();
   if (typeof AntGame !== 'undefined' && AntGame.Settings) {
    this.enabled = AntGame.Settings.soundEnabled !== false;
   }
@@ -321,9 +334,15 @@ class AudioCoordinator {
   }
 
   const resolved = this.resolveCue(key);
+  const now = Date.now();
+  const cooldown = this.cueCooldowns[key] ?? this.cueCooldowns[resolved] ?? this.cueCooldowns.default;
+  const lastTime = this.lastCuePlayTime.get(resolved) || 0;
+  if (now - lastTime < cooldown) return;
+  this.lastCuePlayTime.set(resolved, now);
+
   const chosenPath = this.soundPaths[resolved] || this.soundPaths[key] || key;
 
-  this.lastPlayed.push({ key, resolved, chosenPath, time: Date.now() });
+  this.lastPlayed.push({ key, resolved, chosenPath, time: now });
   if (this.lastPlayed.length > 30) this.lastPlayed.shift();
 
   if (!this.enabled || typeof Audio === 'undefined' || !chosenPath) return;

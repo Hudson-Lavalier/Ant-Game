@@ -24,6 +24,7 @@ AntGame.Config = Object.freeze({
  startingColonyCap:10, queenHealth:1000, foodDrainPerSecond:100/900,
  waterDrainPerSecond:90/900, eggFoodCost:10, eggWaterCost:2,
  foodCriticalRatio:.15, waterCriticalRatio:.10, feederNeedRatio:.90,
+ queenFeedThresholdRatio:0.80, queenWaterThresholdRatio:0.80, queenFeedCooldownSeconds:3.0,
  feederRange:70, waterDropValue:5, buildFoodCost:3, buildDirtCost:2, buildSeconds:2.5,
  // ANT NEEDS: a 50-point supply lasts 25 minutes for food and 18 minutes for water.
  antFoodCapacity:50, antWaterCapacity:50, antFoodDrainPerSecond:50/(25*60), antWaterDrainPerSecond:50/(18*60), antFoodNeedRatio:.10, antWaterNeedRatio:.20, antStarvationDamagePerSecond:2, antDehydrationDamagePerSecond:3, idleReleaseSeconds:10.0,

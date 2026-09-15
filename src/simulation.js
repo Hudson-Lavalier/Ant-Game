@@ -307,7 +307,7 @@ class Simulation {
     if(a.colonyId===1){
      if(a.feeder&&a.carry?.type==='food'){
       const q=this.queen();
-      if(q&&(q.food??200)<(q.maxFood||200)){
+      if(q&&(q.food??200)<(q.maxFood||200)*(C.queenFeedThresholdRatio||0.80)){
        return {point:this.nest,kind:'queen'};
       }
      }
@@ -321,8 +321,8 @@ class Simulation {
    if(a.carry?.type==='water'){
     if(a.colonyId===1){
       const q=this.queen();
-      const queenNeedsWater=q&&(q.water??100)<(q.maxWater||100);
-      if(a.feeder||a.task?.type==='feed-water'||queenNeedsWater){
+      const queenNeedsWater=q&&(q.water??100)<(q.maxWater||100)*(C.queenWaterThresholdRatio||0.80);
+      if(queenNeedsWater){
        return {point:this.nest,kind:'queen'};
       }
       if(this.waterTarget==='reservoir'){const r=this.reservoirDestination(a);if(r)return r;}
@@ -423,13 +423,15 @@ class Simulation {
   assign(a){return AntGame.TaskEngine.assign(this,a);}
   feederNeed(){
    const q=this.queen();
+   const qWaterThresh=(q?.maxWater||100)*(C.queenWaterThresholdRatio||0.80);
+   const qFoodThresh=(q?.maxFood||200)*(C.queenFeedThresholdRatio||0.80);
    if(q&&(q.water??100)<=20)return 'water';
    if(q&&(q.food??200)<=20)return 'food';
-   if(q&&(q.water??100)<(q.maxWater||100)*(C.feederNeedRatio||0.9))return 'water';
-   if(q&&(q.food??200)<(q.maxFood||200)*(C.feederNeedRatio||0.9))return 'food';
+   if(q&&(q.water??100)<qWaterThresh)return 'water';
+   if(q&&(q.food??200)<qFoodThresh)return 'food';
    if(this.waterTarget==='reservoir'&&this.reservoirWater()<this.waterStore.tiles.length*C.waterStoragePerTile)return 'water';
-   if(this.water<this.waterCapacity()*(C.feederNeedRatio||0.9))return 'water';
-   if(this.food<this.foodCapacity()*(C.feederNeedRatio||0.9))return 'food';
+   if(this.water<this.waterCapacity()*(C.queenWaterThresholdRatio||0.80))return 'water';
+   if(this.food<this.foodCapacity()*(C.queenFeedThresholdRatio||0.80))return 'food';
    return null;
   }
   // FEEDER TARGETING: food sources include discovered loose food and edible corpses.
@@ -437,7 +439,8 @@ class Simulation {
    if(need==='food'){
     if(a.actions?.gatherFood===false||a.actions?.selfFeed===false)return null;
     const q=this.queen();
-    if(q&&(q.food??200)<(q.maxFood||200)&&this.food>0){
+    const queenNeedsFood=q&&(q.food??200)<(q.maxFood||200)*(C.queenFeedThresholdRatio||0.80);
+    if(queenNeedsFood&&this.food>=1){
      const pt=AntGame.Inventory?.getFoodSourceTile(this,a);
      if(pt&&pathfind(this.world,a,pt)!==null)return {point:pt,x:pt.x,y:pt.y,feedKind:'colony-food',kind:'colony-food'};
     }
@@ -448,7 +451,8 @@ class Simulation {
    }
    if(a.actions?.gatherWater===false||a.actions?.selfWater===false)return null;
    const q=this.queen();
-   if(q&&(q.water??100)<(q.maxWater||100)&&this.water>0){
+   const queenNeedsWater=q&&(q.water??100)<(q.maxWater||100)*(C.queenWaterThresholdRatio||0.80);
+   if(queenNeedsWater&&this.water>=1){
     if(pathfind(this.world,a,this.nest)!==null)return {point:this.nest,x:this.nest.x,y:this.nest.y,feedKind:'colony-water',kind:'colony-water'};
    }
    if(this.reservoirWater()>0){
@@ -661,11 +665,32 @@ class Simulation {
       if(dest.kind==='queen'){
        const q=this.queen();
        if(load.type==='water'){
-        if(q){q.water=Math.min(q.maxWater||100,(q.water||0)+load.amount);AntGame.AudioCoordinator?.play('antDrink');}
-        this.addWater(load.amount);
+        const needed=q?Math.max(0,(q.maxWater||100)-(q.water||0)):0;
+        const give=Math.min(load.amount,needed);
+        if(q&&give>0){q.water=(q.water||0)+give;AntGame.AudioCoordinator?.play('antDrink');}
+        const surplus=load.amount-give;
+        if(surplus>0){
+         if(this.waterTarget==='reservoir'){
+          const r=this.reservoirDestination(a);
+          if(r&&r.tile){
+           const resStored=Math.min(surplus,C.waterStoragePerTile-(r.tile.water||0));
+           r.tile.water=(r.tile.water||0)+resStored;
+           r.tile.items=(r.tile.items||[]).concat(this.makeItems('reservoir-water','droplet',resStored));
+           if(surplus-resStored>0)this.addWater(surplus-resStored);
+          }else{
+           this.addWater(surplus);
+          }
+         }else{
+          this.addWater(surplus);
+         }
+        }
        }else if(load.type==='food'){
         if(a.feeder && (a.task?.type==='feed-queen' || a.task?.type==='feed-food')){
-         if(q){q.food=Math.min(q.maxFood||200,(q.food||0)+load.amount);AntGame.AudioCoordinator?.play('antEat');}
+         const needed=q?Math.max(0,(q.maxFood||200)-(q.food||0)):0;
+         const give=Math.min(load.amount,needed);
+         if(q&&give>0){q.food=(q.food||0)+give;AntGame.AudioCoordinator?.play('antEat');}
+         const surplus=load.amount-give;
+         if(surplus>0)this.addFood(surplus,load.foodType);
         }else{
          this.addFood(load.amount,load.foodType);
         }
@@ -700,7 +725,8 @@ class Simulation {
       pit.filled=true;
      }
     }
-    a.carry=null;a.state='idle';a.timer=0;this.syncStores();
+    const postTimer=(dest?.kind==='queen'&&a.feeder)?(C.queenFeedCooldownSeconds||3.0):0;
+    a.carry=null;a.state='idle';a.timer=postTimer;this.syncStores();
     if(a.orderQueue&&a.orderQueue.length){this.executeNextOrder(a);return;}
     if(a.pendingMove){const p=a.pendingMove;delete a.pendingMove;this.route(a,p,'moving');}
     else if(a.pendingTask){a.task=a.pendingTask;delete a.pendingTask;a.state=a.task.type;}
@@ -710,16 +736,17 @@ class Simulation {
      const t=a.task?.source;const maxCap=a.maxCarry||C.carryCapacity;
      if(t?.kind==='colony-water'||t?.feedKind==='colony-water'){
       const q=this.queen();
-      if(q&&this.water>0){
+      const queenNeedsWater=q&&(q.water??100)<(q.maxWater||100)*(C.queenWaterThresholdRatio||0.80);
+      if(queenNeedsWater&&this.water>0){
        const take=Math.min(C.waterDropValue||20,this.water,(q.maxWater||100)-(q.water||0));
-       if(take>0){
+       if(take>=1){
         this.spendWater(take);
         q.water=Math.min(q.maxWater||100,(q.water||0)+take);
         AntGame.AudioCoordinator?.play('antDrink');
         this.emit(`Feeder hydrated the queen (+${Math.round(take)} water).`);
        }
       }
-      a.state='idle';a.task=null;return;
+      a.state='idle';a.task=null;a.timer=C.queenFeedCooldownSeconds||3.0;return;
      }
      if(t?.kind==='reservoir'||t?.isReservoir){
       const tile=t.tile||t;
@@ -733,19 +760,23 @@ class Simulation {
        this.toStore(a);
        return;
       }else{
-       a.state='idle';a.task=null;return;
+       a.state='idle';a.task=null;a.timer=C.queenFeedCooldownSeconds||3.0;return;
       }
      }
      if(t?.kind==='colony-food'||t?.feedKind==='colony-food'){
       const q=this.queen();
+      const queenNeedsFood=q&&(q.food??200)<(q.maxFood||200)*(C.queenFeedThresholdRatio||0.80);
+      if(!queenNeedsFood){
+       a.state='idle';a.task=null;a.timer=C.queenFeedCooldownSeconds||3.0;return;
+      }
       const take=Math.min(maxCap,this.food,(q?.maxFood||200)-(q?.food||0));
-      if(take>0){
+      if(take>=1){
        this.spendFood(take);
        a.carry={type:'food',amount:take,foodType:'ration'};
        this.toStore(a);
        return;
       }else{
-       a.state='idle';a.task=null;return;
+       a.state='idle';a.task=null;a.timer=C.queenFeedCooldownSeconds||3.0;return;
       }
      }
      if(a.task?.type==='feed-food'){

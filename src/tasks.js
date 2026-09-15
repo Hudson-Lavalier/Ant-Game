@@ -255,9 +255,8 @@ class TaskEngine {
   // 4. Feed Queen
   if (a.feeder && a.actions?.feed !== false) {
    const q = sim.queen();
-   const queenNeedsFood = q && (q.food ?? 200) < (q.maxFood || 200) * (C.feederNeedRatio || 0.9);
-   const colonyNeedsFood = sim.food < sim.foodCapacity() * (C.feederNeedRatio || 0.9);
-   if (queenNeedsFood || colonyNeedsFood) {
+   const queenNeedsFood = q && (q.food ?? 200) < (q.maxFood || 200) * (C.queenFeedThresholdRatio || 0.80);
+   if (queenNeedsFood) {
     const src = sim.feederSource(a, 'food');
     if (src) {
      const p = src.point || { x: Math.round(src.x), y: Math.round(src.y) };
@@ -269,7 +268,7 @@ class TaskEngine {
   // 5. Queen Water
   if (a.feeder && a.actions?.feed !== false) {
    const q = sim.queen();
-   const queenNeedsWater = q && (q.water ?? 100) < (q.maxWater || 100) * (C.feederNeedRatio || 0.9);
+   const queenNeedsWater = q && (q.water ?? 100) < (q.maxWater || 100) * (C.queenWaterThresholdRatio || 0.80);
    const colonyNeedsWater = (sim.water < sim.queenWaterCapacity() * (C.feederNeedRatio || 0.9)) ||
     (sim.waterTarget === 'reservoir' && sim.reservoirWater() < sim.waterStore.tiles.length * C.waterStoragePerTile);
    if (queenNeedsWater || colonyNeedsWater) {

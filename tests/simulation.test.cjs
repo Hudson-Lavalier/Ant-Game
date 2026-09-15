@@ -85,7 +85,7 @@ test('action toggle separation and caste capability safety preserved under prior
 test('feeder exclusivity preserved and manual command overrides priorities',()=>{const s=new Simulation(1304),w=s.addAnt('worker',s.nest.x,s.nest.y);const corpse={id:'stored-meat-1',species:'mite',x:s.nest.x+1,y:s.nest.y,alive:false,food:20,state:'dead',inStorage:true,storageColonyId:1};s.creatures.push(corpse);s.setCastePriority('worker','feedQueen',1);s.assign(w);assert.notEqual(w.state,'to-process');assert.notEqual(w.task?.type,'process-food');const targetCell={x:s.nest.x+2,y:s.nest.y};s.move(w,targetCell);assert.equal(w.manualOrder,true);assert.equal(w.held,true);assert.equal(w.state,'moving');});
 test('10-second release timer automatically returns idle manual/selected ants to colony work',()=>{const s=new Simulation(1305),w=s.addAnt('worker',s.nest.x,s.nest.y);let releasedId=null;s.onAntAutoReleased=(id)=>{releasedId=id;};const target={x:s.nest.x+1,y:s.nest.y};s.move(w,target);assert.equal(w.manualOrder,true);assert.equal(w.held,true);s.update(0.1);assert.equal(w.idleReleaseTimer,0);w.path=[];w.state='idle';w.x=target.x;w.y=target.y;s.update(5.0);assert.equal(w.held,true);assert.ok(w.idleReleaseTimer>=4.9);assert.equal(releasedId,null);s.update(5.1);assert.equal(w.held,false);assert.equal(w.manualOrder,false);assert.equal(releasedId,w.id);w.selected=true;w.held=false;w.manualOrder=false;w.state='idle';s.update(5.0);assert.ok(w.idleReleaseTimer>=4.9);assert.equal(w.selected,true);s.update(5.1);assert.equal(w.selected,false);});
 test('caste priorities persist across serialization and restore',()=>{const s=new Simulation(1306);s.setCastePriority('worker','dig',2);s.setCastePriority('soldier','combat',1);s.setCastePriority('major','carry',3);const saved=JSON.parse(JSON.stringify(s.serialize()));const restored=Simulation.restore(saved);assert.equal(restored.getCastePriority('worker','dig'),2);assert.equal(restored.getCastePriority('soldier','combat'),1);assert.equal(restored.getCastePriority('major','carry'),3);assert.equal(restored.getCastePriority('minor','selfFeed'),1);});
-test('feeder priority configuration decides whether to feed queen, chew food, or proceed to other tasks',()=>{const s=new Simulation(1307),w=s.addAnt('worker',s.nest.x,s.nest.y);s.setFeeder(w);s.food=10;const corpse={id:'feeder-prio-corpse',species:'mite',x:s.nest.x+1,y:s.nest.y,alive:false,food:30,state:'dead',inStorage:true,storageColonyId:1};s.creatures.push(corpse);const looseSeed={id:'loose-seed-1',foodType:'seeds',x:s.nest.x+2,y:s.nest.y,remaining:40,state:'dormant'};s.resources.push(looseSeed);s.world.peek(looseSeed.x,looseSeed.y).discovered=true;const digCell=s.world.peek(s.nest.x-1,s.nest.y);digCell.solid=true;digCell.discovered=true;s.designate(digCell.x,digCell.y);s.refreshJobStates();s.setCastePriority('feeder','chewFood',1);s.setCastePriority('feeder','feedQueen',3);s.setCastePriority('feeder','dig',5);s.assign(w);assert.equal(w.state,'processing');assert.equal(w.task?.targetId,corpse.id);w.state='idle';w.task=null;w.path=[];s.setCastePriority('feeder','feedQueen',1);s.setCastePriority('feeder','chewFood',3);s.setCastePriority('feeder','dig',5);s.assign(w);assert.equal(w.state,'feeding-food');w.state='idle';w.task=null;w.path=[];s.setCastePriority('feeder','dig',1);s.setCastePriority('feeder','feedQueen',5);s.setCastePriority('feeder','chewFood',5);s.assign(w);assert.equal(w.state,'to-dig');});
+test('feeder priority configuration decides whether to feed queen, chew food, or proceed to other tasks',()=>{const s=new Simulation(1307),w=s.addAnt('worker',s.nest.x,s.nest.y);s.setFeeder(w);s.food=10;s.queen().food=100;const corpse={id:'feeder-prio-corpse',species:'mite',x:s.nest.x+1,y:s.nest.y,alive:false,food:30,state:'dead',inStorage:true,storageColonyId:1};s.creatures.push(corpse);const looseSeed={id:'loose-seed-1',foodType:'seeds',x:s.nest.x+2,y:s.nest.y,remaining:40,state:'dormant'};s.resources.push(looseSeed);s.world.peek(looseSeed.x,looseSeed.y).discovered=true;const digCell=s.world.peek(s.nest.x-1,s.nest.y);digCell.solid=true;digCell.discovered=true;s.designate(digCell.x,digCell.y);s.refreshJobStates();s.setCastePriority('feeder','chewFood',1);s.setCastePriority('feeder','feedQueen',3);s.setCastePriority('feeder','dig',5);s.assign(w);assert.equal(w.state,'processing');assert.equal(w.task?.targetId,corpse.id);w.state='idle';w.task=null;w.path=[];s.setCastePriority('feeder','feedQueen',1);s.setCastePriority('feeder','chewFood',3);s.setCastePriority('feeder','dig',5);s.assign(w);assert.equal(w.state,'feeding-food');w.state='idle';w.task=null;w.path=[];s.setCastePriority('feeder','dig',1);s.setCastePriority('feeder','feedQueen',5);s.setCastePriority('feeder','chewFood',5);s.assign(w);assert.equal(w.state,'to-dig');});
 test('sim.brush dragging applies valid actions and silently ignores invalid hexes',()=>{
  const s=new Simulation(1308);
  const cellSolid=s.world.get(s.nest.x+1,s.nest.y);cellSolid.solid=true;cellSolid.discovered=true;
@@ -447,4 +447,98 @@ test('feeder ant prioritizes queen water with max priority and saves dehydrating
  assert.equal(w.state, 'idle');
  s.assign(w);
  assert.equal(w.task?.type, 'feed-water');
+});
+
+test('queen feeding and hydration obey 80% threshold gating and cooldown without infinite looping', () => {
+ const s = new Simulation(1501);
+ s.resources = [];
+ s.creatures = [];
+ const w = s.addAnt('worker', s.nest.x, s.nest.y);
+ s.setFeeder(w);
+ s.food = 100;
+ s.water = 100;
+ const q = s.queen();
+
+ // 1. At 85% food (170/200) and 85% water (85/100), queen does not need food or water
+ q.food = 170;
+ q.water = 85;
+ assert.ok(!s.feederSource(w, 'food'), 'Feeder should not take food from colony stores when queen is at 85%');
+ assert.ok(!s.feederSource(w, 'water'), 'Feeder should not take water from colony stores when queen is at 85%');
+ s.assign(w);
+ assert.notEqual(w.state, 'feeding-food');
+ assert.notEqual(w.state, 'feeding-water');
+
+ // 2. When queen drops below 80% food (e.g. 150/200), feeding activates
+ q.food = 150;
+ const foodSrc = s.feederSource(w, 'food');
+ assert.ok(foodSrc, 'Feeder source for food should be available when queen < 80%');
+ assert.equal(foodSrc.kind, 'colony-food');
+ s.setCastePriority('feeder', 'feedQueen', 1);
+ s.assign(w);
+ assert.equal(w.state, 'feeding-food');
+ s.pickupFeed(w);
+ assert.ok(w.carry && w.carry.type === 'food');
+ assert.equal(w.state, 'carrying');
+ assert.equal(s.storage(w).kind, 'queen');
+ 
+ // Deposit to queen with surplus test: carry 20 food, queen needs 50 (takes 20, timer gets cooldown)
+ w.carry = { type: 'food', amount: 20, foodType: 'ration' };
+ w.state = 'depositing';
+ w.timer = 0;
+ w.destination = { point: s.nest, kind: 'queen' };
+ s.deposit(w, 0.1);
+ assert.equal(q.food, 170);
+ assert.ok(w.timer >= 2.5, 'Post-feed cooldown should be at least 2.5s');
+
+ // 3. When queen drops below 80% water (e.g. 70/100), hydration activates
+ q.water = 70;
+ const waterSrc = s.feederSource(w, 'water');
+ assert.ok(waterSrc, 'Feeder source for water should be available when queen < 80%');
+ assert.equal(waterSrc.kind, 'colony-water');
+ w.task = { type: 'feed-water', source: waterSrc };
+ w.state = 'feeding-water';
+ s.pickupFeed(w);
+ assert.ok(q.water > 70, 'Queen water should have increased via direct hydration');
+ assert.ok(w.timer >= 2.5, 'Post-water cooldown should be at least 2.5s');
+});
+
+test('feeder deposits water into reservoir when queen is hydrated', () => {
+ const s = new Simulation(1502);
+ const resTile = s.world.peek(s.nest.x + 2, s.nest.y);
+ resTile.solid = false;
+ resTile.discovered = true;
+ resTile.waterStorage = true;
+ resTile.water = 0;
+ s.waterStore.tiles.push(resTile);
+ s.waterTarget = 'reservoir';
+
+ const q = s.queen();
+ q.water = 100; // Queen is full
+
+ const w = s.addAnt('worker', s.nest.x, s.nest.y);
+ s.setFeeder(w);
+ w.carry = { type: 'water', amount: 20 };
+ const dest = s.storage(w);
+ assert.equal(dest.kind, 'reservoir', 'Should route to reservoir when queen is hydrated');
+ w.destination = dest;
+ w.state = 'depositing';
+ s.deposit(w, 0.1);
+ assert.equal(resTile.water, 7, 'Reservoir tile should have stored up to max tile capacity 7');
+});
+
+test('audio coordinator rate-limits duplicate sound cues within cooldown window', () => {
+ assert.ok(AntGame.AudioCoordinator, 'AudioCoordinator must exist');
+ AntGame.AudioCoordinator.lastPlayed = [];
+ AntGame.AudioCoordinator.lastCuePlayTime.clear();
+
+ AntGame.AudioCoordinator.play('antDrink');
+ assert.equal(AntGame.AudioCoordinator.lastPlayed.filter(x => x.key === 'antDrink').length, 1);
+
+ // Immediate second play must be throttled
+ AntGame.AudioCoordinator.play('antDrink');
+ assert.equal(AntGame.AudioCoordinator.lastPlayed.filter(x => x.key === 'antDrink').length, 1);
+
+ // Different cue within its own cooldown is permitted
+ AntGame.AudioCoordinator.play('rockStrike');
+ assert.equal(AntGame.AudioCoordinator.lastPlayed.filter(x => x.resolved.startsWith('rock_strike')).length, 1);
 });
