@@ -42,10 +42,22 @@ class Ecology {
    }
    // Seed sites are visible resource nodes with the requested mite swarm and isopod group.
    if((f.type==='food'||f.type==='seed-site')&&!s.resources.some(r=>r.featureId===f.id)){const foodType=f.foodType||'meat',def=FoodTypes[foodType],remaining=def.value*12;s.resources.push({id:`food-${f.id}`,featureId:f.id,foodType,x:f.x,y:f.y,remaining,initial:remaining,decay:0,state:'dormant'});}
-   if(f.type==='seed-site'&&!s.creatures.some(c=>c.seedFeatureId===f.id)){
-    const mites=1+Math.floor(s.random.next()*2),isopods=1;
-    for(let i=0;i<mites;i++){const p=AntGame.hexDisk(f.x,f.y,2)[Math.floor(s.random.next()*AntGame.hexDisk(f.x,f.y,2).length)];s.creatures.push(Ecology.spawnCreature(s,'mite',p.x,p.y,{seedFeatureId:f.id}));}
-    for(let i=0;i<isopods;i++){const p=AntGame.hexDisk(f.x,f.y,2)[Math.floor(s.random.next()*AntGame.hexDisk(f.x,f.y,2).length)];s.creatures.push(Ecology.spawnCreature(s,'isopod',p.x,p.y,{seedFeatureId:f.id}));}
+   if((f.type==='seed-site'||f.id==='food-start')&&!s.creatures.some(c=>c.seedFeatureId===f.id)){
+    const disk=AntGame.hexDisk(f.x,f.y,2);
+    if(f.id==='food-start'){
+     const packRoll=Math.abs(hash(s.world.seed,f.x,f.y))%10;
+     if(packRoll<4){
+      for(let i=0;i<2;i++){const p=disk[Math.floor(s.random.next()*disk.length)];s.creatures.push(Ecology.spawnCreature(s,'isopod',p.x,p.y,{seedFeatureId:f.id}));}
+     }else if(packRoll<7){
+      const p=disk[Math.floor(s.random.next()*disk.length)];s.creatures.push(Ecology.spawnCreature(s,'weevil',p.x,p.y,{seedFeatureId:f.id}));
+     }else{
+      for(let i=0;i<5;i++){const p=disk[Math.floor(s.random.next()*disk.length)];s.creatures.push(Ecology.spawnCreature(s,'mite',p.x,p.y,{seedFeatureId:f.id}));}
+     }
+    }else{
+     const mites=1+Math.floor(s.random.next()*2),isopods=1;
+     for(let i=0;i<mites;i++){const p=disk[Math.floor(s.random.next()*disk.length)];s.creatures.push(Ecology.spawnCreature(s,'mite',p.x,p.y,{seedFeatureId:f.id}));}
+     for(let i=0;i<isopods;i++){const p=disk[Math.floor(s.random.next()*disk.length)];s.creatures.push(Ecology.spawnCreature(s,'isopod',p.x,p.y,{seedFeatureId:f.id}));}
+    }
    }
    // A root encounter binds its aphids and optional Woodlouse to this particular vein.
    if(f.type==='root-vein'&&!s.creatures.some(c=>c.rootFeatureId===f.id)){const cells=Ecology.rootFeatureCells(s,f),count=3+Math.floor(s.random.next()*3);for(let i=0;i<count&&cells.length;i++){const p=cells[i%cells.length];s.creatures.push(Ecology.spawnCreature(s,'root_aphid',p.x,p.y,{rootFeatureId:f.id,milkCooldown:0,biteTimer:C.rootAphidBiteInterval}));}if(s.random.next()<.4&&cells.length){const p=cells[0];s.creatures.push(Ecology.spawnCreature(s,'isopod',p.x,p.y,{rootFeatureId:f.id,variantName:'Woodlouse'}));}}
@@ -141,6 +153,7 @@ class Ecology {
  }
  static damage(s,a,amount){
   a.health-=amount*(a.colonyId===1?s.effect('armor'):1);
+  a.combatTimer=5.0;
   if(a.colonyId===1)AntGame.AudioCoordinator?.play('impactChitin');
   if(a.health<=0)s.kill(a);
  }

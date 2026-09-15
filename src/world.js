@@ -15,15 +15,22 @@ const hexDistance=(a,b={x:0,y:0})=>{const aq=a.q!==undefined?a.q:a.x,ar=a.q!==un
 const hexDisk=(q,r,n)=>{const out=[];for(let dq=-n;dq<=n;dq++)for(let dr=Math.max(-n,-dq-n);dr<=Math.min(n,-dq+n);dr++)out.push({x:q+dq,y:r+dr});return out;};
 const hexRound=(q,r)=>{const x=q,z=r,y=-x-z;let rx=Math.round(x),ry=Math.round(y),rz=Math.round(z),dx=Math.abs(rx-x),dy=Math.abs(ry-y),dz=Math.abs(rz-z);if(dx>dy&&dx>dz)rx=-ry-rz;else if(dy>dz)ry=-rx-rz;else rz=-rx-ry;return{x:rx,y:rz};};
 class World{
- constructor(seed){this.seed=seed;this.cells=new Map();this.chunks=new Map();this.features=[];this.pits=[];this.removed=0;this.revision=0;this.activeWater=new Set();this.founding=this.foundingLayout();this.ensureChunk(0,0);this.pit={...this.founding.spoilHole,used:0,capacity:C.spoilCapacity,hole:true};this.pits.push(this.pit);this.found();}
+ constructor(seed){this.seed=seed;this.cells=new Map();this.chunks=new Map();this.features=[];this.pits=[];this.removed=0;this.revision=0;this.activeWater=new Set();this._featureDefCache=new Map();this.founding=this.foundingLayout();this.ensureChunk(0,0);this.pit={...this.founding.spoilHole,used:0,capacity:C.spoilCapacity,hole:true};this.pits.push(this.pit);this.found();}
  inside(q,r){return hexDistance({x:q,y:r})<=C.chunkRadius;}
  ensureChunk(cx,cy){const id=key(cx,cy);if(this.chunks.has(id))return;const oq=cx*C.chunkStride,or=cy*C.chunkStride,h=hash(this.seed,cx,cy);this.chunks.set(id,{id,cx,cy,x:oq,y:or,seed:h});for(const p of hexDisk(oq,or,C.chunkRadius)){const k=key(p.x,p.y);if(!this.cells.has(k))this.cells.set(k,this.generateCell(p.x,p.y));}for(const f of this.featureDefinitions(cx,cy))if(!this.features.some(a=>a.id===f.id))this.features.push(f);}
  // PROCEDURAL ECOLOGY FEATURES: each chunk keeps its original landmark and may
  // add sparse encounter sites. Their ids are seed-stable, so save/load cannot
  // reshuffle an explored ecosystem.
  featureDefinitions(cx,cy){
+  if(!this._featureDefCache)this._featureDefCache=new Map();
+  const cacheKey=key(cx,cy);
+  if(this._featureDefCache.has(cacheKey))return this._featureDefCache.get(cacheKey);
   const x=cx*C.chunkStride,y=cy*C.chunkStride,h=hash(this.seed,cx,cy),prefix=key(cx,cy);
-  if(cx===0&&cy===0)return[{id:'water-start',type:'water',x:23,y:-16,r:4},{id:'ruin-start',type:'abandoned',x:-23,y:-16,r:4,species:'weevil'},{id:'surface-start',type:'surface',x:0,y:-25,r:2},{id:'food-start',type:'food',x:-22,y:11,r:2,foodType:'seeds'},{id:'spider-start',type:'spider-cavity',x:-18,y:22,r:4,species:'spider'}];
+  if(cx===0&&cy===0){
+   const out=[{id:'water-start',type:'water',x:23,y:-16,r:4},{id:'ruin-start',type:'abandoned',x:-23,y:-16,r:4,species:'weevil'},{id:'surface-start',type:'surface',x:0,y:-25,r:2},{id:'food-start',type:'food',x:-22,y:11,r:2,foodType:'seeds'},{id:'cave-start',type:'cavity',x:-18,y:22,r:4}];
+   this._featureDefCache.set(cacheKey,out);
+   return out;
+  }
   const out=[],passDir=DIRS[h%6],spot=(ox,oy)=>({x:x+ox,y:y+oy});
   // 1. INFINITESIMAL TIER (~0.5% per chunk, 1 in 200 chunks): Hercules Beetle lair
   if(((h>>>4)%200)===0){
@@ -33,7 +40,9 @@ class World{
   // 2. VERY RARE TIER (~3% per chunk, 1 in 33 chunks): Spiders, Roots, Foreign Colonies
   if(((h>>>12)%33)===0){
    const p=spot(((h>>>2)%17)-8,((h>>>7)%17)-8);
-   out.push({id:`spider-cavity-${prefix}`,type:'spider-cavity',x:p.x,y:p.y,r:4,species:'spider'});
+   if(hexDistance({x:p.x,y:p.y})>=45){
+    out.push({id:`spider-cavity-${prefix}`,type:'spider-cavity',x:p.x,y:p.y,r:4,species:'spider'});
+   }
   }
   if(((h>>>16)%33)===0){
    const p=spot(((h>>>3)%17)-8,((h>>>9)%17)-8),d=DIRS[(h>>>20)%6];
@@ -68,9 +77,10 @@ class World{
    const fx=x+((h>>>2)%15)-7,fy=y+((h>>>9)%15)-7,r=2+(h%2);
    out.push({id:`cavity-small-${prefix}`,type:'cavity',x:fx,y:fy,r,dirX:passDir[0],dirY:passDir[1],passageX:fx+passDir[0]*r,passageY:fy+passDir[1]*r});
   }
+  this._featureDefCache.set(cacheKey,out);
   return out;
  }
- rootCells(f){const cells=[];for(let i=0;i<f.length;i++){cells.push({x:f.x+f.dirX*i,y:f.y+f.dirY*i});if(i>1&&i<f.length-1&&i%3===0)cells.push({x:f.x+f.dirX*i+f.dirY,y:f.y+f.dirY*i-f.dirX});}return cells;}
+ rootCells(f){if(f._cachedRootCells)return f._cachedRootCells;const cells=[];for(let i=0;i<f.length;i++){cells.push({x:f.x+f.dirX*i,y:f.y+f.dirY*i});if(i>1&&i<f.length-1&&i%3===0)cells.push({x:f.x+f.dirX*i+f.dirY,y:f.y+f.dirY*i-f.dirX});}f._cachedRootCells=cells;return cells;}
  featureAt(x,y){const cx=Math.round(x/C.chunkStride),cy=Math.round(y/C.chunkStride);for(let j=cy-1;j<=cy+1;j++)for(let i=cx-1;i<=cx+1;i++)for(const f of this.featureDefinitions(i,j)){if(f.type==='root-vein'&&this.rootCells(f).some(p=>p.x===x&&p.y===y))return f;const roomRadius=f.type==='hercules-cavity'?12:f.type==='worm-cavity'?6:f.type==='spider-cavity'?5:f.r,room=hexDistance({x,y},f)<=roomRadius,tunnel=f.type==='abandoned'&&Math.abs(x-f.x)<=11&&Math.abs(y-f.y-Math.round(Math.sin((x-f.x)*.4)*2))<=1,shaft=f.type==='surface'&&Math.abs(x-f.x)<=1&&y-f.y>=-4&&y-f.y<=0;if(room||tunnel||shaft)return f;}return null;}
  generateCell(x,y){const f=this.featureAt(x,y);if(f){if(f.type==='root-vein')return{x,y,solid:true,terrain:'root',hardness:4,woodDurability:C.rootWoodDurability,discovered:false,zone:'root',root:true,feature:f.id,water:0,depth:1,excavations:0};if(f.type==='rock'){return{x,y,solid:true,terrain:'rock',hardness:2,discovered:false,zone:'rock',rock:true,feature:f.id,water:0,depth:1,excavations:0};}if(f.type==='well'){if(x===f.x&&y===f.y){return{x,y,solid:false,terrain:'water',hardness:1,discovered:false,zone:'well',isWell:true,feature:f.id,water:20,depth:1,excavations:0};}const dirX=f.dirX??1,dirY=f.dirY??0,dx=x-f.x,dy=y-f.y;let isPassage=false;for(let k=1;k<=f.r;k++){if(dx===k*dirX&&dy===k*dirY){isPassage=true;break;}}if(isPassage)return{x,y,solid:false,terrain:'soil',hardness:.85,discovered:false,zone:'passage',feature:f.id,water:0,depth:1,excavations:0};return{x,y,solid:true,terrain:'rock',hardness:2,discovered:false,zone:'rock',rock:true,feature:f.id,water:0,depth:1,excavations:0};}return{x,y,solid:false,terrain:'soil',hardness:.85+(hash(this.seed,x,y)%40)/100,discovered:false,zone:f.type,feature:f.id,water:f.type==='water'?7:0,depth:f.type==='surface'?0:1,excavations:0};}const cx=Math.round(x/C.chunkStride),cy=Math.round(y/C.chunkStride),ch=hash(this.seed+888,cx,cy);if((ch%3)===0){const clusterX=cx*C.chunkStride+((ch%21)-10),clusterY=cy*C.chunkStride+(((ch>>>5)%21)-10);if(hexDistance({x,y},{x:clusterX,y:clusterY})<=2)return{x,y,solid:true,terrain:'rock',hardness:2,discovered:false,zone:'rock',rock:true,feature:null,water:0,depth:1,excavations:0};}return{x,y,solid:true,terrain:'soil',hardness:.85+(hash(this.seed,x,y)%40)/100,discovered:false,zone:null,feature:null,water:0,depth:1,excavations:0};}
  get(x,y){x=Math.round(x);y=Math.round(y);if(!this.cells.has(key(x,y))){this.ensureChunk(Math.round(x/C.chunkStride),Math.round(y/C.chunkStride));if(!this.cells.has(key(x,y)))this.cells.set(key(x,y),this.generateCell(x,y));}return this.cells.get(key(x,y));}
@@ -193,7 +203,7 @@ class World{
  // dirt load after destruction because it is wood consumed by the environment.
  removePiece(c,face){if(!c.solid||!face||face.solid||hexDistance(c,face)!==1)return null;c.solid=false;c.zone='tunnel';c.root=false;c.excavations=(c.excavations||0)+1;this.removed++;this.revision++;return c.terrain==='root'?null:{type:'soil',amount:1,source:{x:c.x,y:c.y}};}
  serialize(){return{seed:this.seed,cells:[...this.cells],chunks:[...this.chunks],features:this.features,pit:this.pit,pits:this.pits,founding:this.founding,removed:this.removed,revision:this.revision,activeWater:[...this.activeWater]};}
- static restore(data){const w=Object.create(World.prototype);Object.assign(w,data);w.cells=new Map(data.cells);w.chunks=new Map(data.chunks);w.activeWater=new Set(data.activeWater);w.pits=data.pits||[data.pit];w.founding=data.founding||{nest:{...C.queenPosition},spoil:{x:data.pit.x,y:data.pit.y},foodStore:{...C.foodPosition},waterStore:{x:C.queenPosition.x+2,y:C.queenPosition.y}};return w;}
+ static restore(data){const w=Object.create(World.prototype);Object.assign(w,data);w.cells=new Map(data.cells);w.chunks=new Map(data.chunks);w.activeWater=new Set(data.activeWater);w.pits=data.pits||[data.pit];w._featureDefCache=new Map();w.founding=data.founding||{nest:{...C.queenPosition},spoil:{x:data.pit.x,y:data.pit.y},foodStore:{...C.foodPosition},waterStore:{x:C.queenPosition.x+2,y:C.queenPosition.y}};return w;}
 }
 function maxContiguousOpenNeighbors(world, x, y){
  const ns = DIRS.map(([dq, dr]) => world.peek(x + dq, y + dr));

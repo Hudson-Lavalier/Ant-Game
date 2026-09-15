@@ -9,6 +9,14 @@ const { Config: C, key, pathfind } = AntGame;
 const isWorkerMorph = AntGame.isWorkerMorph || (type => ['worker','minor','media','major','supermajor'].includes(type));
 
 class Construction {
+ static isHole(sim, c, x, y) {
+  if (!c) return false;
+  if (c.zone === 'pit' || c.hole || c.isHole) return true;
+  if (sim.world.pits && sim.world.pits.some(p => p.x === x && p.y === y && !p.filled)) return true;
+  if (sim.world.pit && sim.world.pit.x === x && sim.world.pit.y === y && !sim.world.pit.filled) return true;
+  return false;
+ }
+
  static designateBuild(sim, x, y, ant=null, structure='food') {
   const c = sim.world.peek(x, y);
   if (!c?.discovered) return false;
@@ -16,6 +24,7 @@ class Construction {
    AntGame.AudioCoordinator?.play('rockStrike');
    return false;
   }
+  if (this.isHole(sim, c, x, y)) return false;
   const id = `1:build:${structure}:${key(x, y)}`;
   if (!sim.jobs.some(j => j.id === id)) {
    const excNeeded = structure === 'water' ? 2 : 0;
@@ -62,6 +71,7 @@ class Construction {
    const nestPos = j.colonyId === 1 ? sim.nest : (sim.colonies.find(cl => cl.id === j.colonyId)?.pit || { x: j.x, y: j.y });
    if (!c || (!c.discovered && j.colonyId === 1)) { j.status = 'unknown'; continue; }
    if (c.rock || c.zone === 'rock') { sim.jobs = sim.jobs.filter(job => job !== j); continue; }
+   if (j.type === 'build' && this.isHole(sim, c, j.x, j.y)) { sim.jobs = sim.jobs.filter(job => job !== j); continue; }
    if (j.type === 'dig' && !c.solid && !j.buildId) { sim.jobs = sim.jobs.filter(job => job !== j); continue; }
    if (j.type === 'build') {
     if (c.solid || (c.excavations || 0) < j.excavations) {

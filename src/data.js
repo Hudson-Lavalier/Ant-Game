@@ -33,10 +33,10 @@ AntGame.Species = {
  worm:{name:'Earthworm',health:28,speed:9,damage:0,behavior:'flee',baseFood:120,color:'#b9837b',clearance:1,excavator:true,mineTime:1.1,activation:30,deactivation:90,visualScale:1,bodyWidth:1.0,bodyLength:8,segmentSpacing:.72},
  grub:{name:'Beetle Grub',health:80,speed:3.2,damage:7,behavior:'defensive',baseFood:240,color:'#d8ca98',clearance:2,excavator:true,mineTime:1.8,activation:30,deactivation:90,visualScale:1,bodyWidth:1.9,bodyLength:5.8,segmentSpacing:.62},
  weevil:{name:'Bull Weevil',health:55,speed:3.8,damage:6,behavior:'defensive',baseFood:85,color:'#815a39',clearance:1,activation:30,deactivation:90,visualScale:.30,bodyWidth:.56,bodyLength:1.5},
- hercules:{name:'Hercules Beetle',health:650,speed:2.6,damage:30,behavior:'aggressive',baseFood:350,color:'#c7b87b',clearance:8,reach:3.3,visualScale:1.05,activation:30,deactivation:90,bodyWidth:7.7,bodyLength:17.3},
+ hercules:{name:'Hercules Beetle',health:650,speed:2.6,damage:30,behavior:'aggressive',baseFood:1750,color:'#c7b87b',clearance:8,reach:3.3,visualScale:1.05,activation:30,deactivation:90,bodyWidth:7.7,bodyLength:17.3},
  mite:{name:'Mite',health:5,speed:4.5,damage:2,behavior:'aggressive',baseFood:8,color:'#a54c45',clearance:1,activation:30,deactivation:90,visualScale:.45,bodyWidth:.32,bodyLength:.48},
  isopod:{name:'Isopod',health:40,speed:2.8,damage:0,behavior:'flee',baseFood:45,color:'#74766b',clearance:2,activation:30,deactivation:90,visualScale:.60,bodyWidth:1.18,bodyLength:2.4},
- spider:{name:'Spider',health:500,speed:3.4,damage:22,behavior:'aggressive',baseFood:90,color:'#443936',clearance:3,visualScale:.95,activation:30,deactivation:90,bodyWidth:2.9,bodyLength:5.35},
+ spider:{name:'Spider',health:500,speed:3.4,damage:22,behavior:'aggressive',baseFood:1000,color:'#443936',clearance:3,visualScale:.95,activation:30,deactivation:90,bodyWidth:2.9,bodyLength:5.35},
  baby_spider:{name:'Baby Spider',health:40,speed:2.8,damage:6,behavior:'aggressive',baseFood:15,color:'#7c6c61',clearance:1,visualScale:.38,activation:30,deactivation:90,bodyWidth:1.05},
  root_aphid:{name:'Root Aphid',health:12,speed:0,damage:0,behavior:'anchored',baseFood:0,color:'#c8a957',clearance:1,activation:0,deactivation:Infinity,freezeExempt:true,visualScale:.35,bodyWidth:.47}
  ,// SAVE COMPATIBILITY: pre-cleanup saves may still name this former entry.

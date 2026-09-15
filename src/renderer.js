@@ -44,7 +44,7 @@ class Renderer{
  tile(p,s){this.poly(p.x,p.y,s*1.01);}
  text(t,x,y,color,size=10){const c=this.ctx;c.fillStyle=color;c.font=`${size}px Segoe UI`;c.textAlign='center';c.fillText(t,x,y);}
  hp(entity,p,z,max){
-  if(z<1.4)return;
+  if(z<1.4||!entity.alive||(entity.health||0)<=0)return;
   const c=this.ctx;
   const inCombat=entity.type!=='queen'&&(entity.state==='attack'||(entity.lastAttacker&&(entity.fleeTimer||0)>0)||entity.threatId);
   if(inCombat){

@@ -542,3 +542,85 @@ test('audio coordinator rate-limits duplicate sound cues within cooldown window'
  AntGame.AudioCoordinator.play('rockStrike');
  assert.equal(AntGame.AudioCoordinator.lastPlayed.filter(x => x.resolved.startsWith('rock_strike')).length, 1);
 });
+
+test('combat rebalance: queen regen is 0.5 HP/s out of combat and disabled during combat', () => {
+  const s = new Simulation(101);
+  const q = s.queen();
+  q.food = 100;
+  q.water = 100;
+  q.health = 500;
+  q.maxHealth = 1000;
+  q.threatId = null;
+
+  // Advance 2 seconds -> should heal 0.5 * 2 = 1.0 HP
+  advance(s, 2);
+  assert.ok(Math.abs(q.health - 501) < 0.1, `Queen healed ~1 HP in 2s (got ${q.health})`);
+
+  // Under threat/combat -> healing paused
+  q.threatId = 'spider-threat';
+  const hpBefore = q.health;
+  advance(s, 2);
+  assert.equal(q.health, hpBefore, 'Queen must not regenerate health while threatId is active');
+});
+
+test('food values: spider corpse is 1000 and hercules is 1750', () => {
+  assert.equal(AntGame.Species.spider.baseFood, 1000);
+  assert.equal(AntGame.Species.hercules.baseFood, 1750);
+});
+
+test('feeder hysteresis: feeding continues until queen is 98% topped off', () => {
+  const s = new Simulation(102);
+  const q = s.queen();
+  q.maxFood = 200;
+  q.food = 150; // 75% -> below 80%, triggers tending
+  assert.equal(s.feederNeed(), 'food');
+  assert.equal(q.tendingFood, true);
+
+  // Queen fed to 165 (82.5%) -> above 80%, but below 98%, tending remains active
+  q.food = 165;
+  assert.equal(s.feederNeed(), 'food');
+  assert.equal(q.tendingFood, true);
+
+  // Queen topped off to 198 (99%) -> clears tending
+  q.food = 198;
+  s.feederNeed();
+  assert.equal(q.tendingFood, false);
+});
+
+test('construction: building cannot be designated on hole or pit tiles', () => {
+  const s = new Simulation(103);
+  const pit = s.world.pit;
+  const c = s.world.peek(pit.x, pit.y);
+  c.discovered = true;
+  assert.equal(s.designateBuild(pit.x, pit.y, null, 'food'), false, 'Cannot build on spoil pit/hole');
+  assert.equal(s.jobs.some(j => j.x === pit.x && j.y === pit.y && j.type === 'build'), false);
+});
+
+test('chunk ecology: chunk (0,0) has cave-start and no spider, procedural spiders >= 45 hexes away', () => {
+  const s = new Simulation(104);
+  const startFeatures = s.world.featureDefinitions(0, 0);
+  assert.ok(startFeatures.some(f => f.id === 'cave-start' && f.type === 'cavity'), 'Guaranteed cave near spawn');
+  assert.equal(startFeatures.some(f => f.type === 'spider-cavity'), false, 'No spider lair at spawn');
+
+  // Check procedural spiders across chunks
+  for (let cx = -2; cx <= 2; cx++) {
+    for (let cy = -2; cy <= 2; cy++) {
+      const defs = s.world.featureDefinitions(cx, cy);
+      for (const f of defs) {
+        if (f.type === 'spider-cavity') {
+          const dist = hexDistance({ x: f.x, y: f.y }, { x: 0, y: 0 });
+          assert.ok(dist >= 45, `Spider lair at ${f.x},${f.y} should be >= 45 hexes away (was ${dist})`);
+        }
+      }
+    }
+  }
+});
+
+test('starter seed site spawns starter creature pack (isopods, weevil, or mites)', () => {
+  const s = new Simulation(105);
+  Ecology.sync(s);
+  const starterCreatures = s.creatures.filter(c => c.seedFeatureId === 'food-start');
+  assert.ok(starterCreatures.length > 0, 'Starter seed site must spawn starter creatures');
+  const sp = starterCreatures[0].species;
+  assert.ok(['isopod', 'weevil', 'mite'].includes(sp), `Starter creature species was ${sp}`);
+});

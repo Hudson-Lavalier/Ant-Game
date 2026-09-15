@@ -10,7 +10,7 @@
  * digging, hauling, construction, harvesting, and recovery; serialize/restore save.
  */
 (()=>{
-const {Config:C,Random,World,pathfind,findRoute,key,rollCaste,FoodTypes,hexDistance,hexDisk,hexRound,canCarry}=AntGame;
+const {Config:C,Random,World,pathfind,findRoute,key,rollCaste,FoodTypes,Species,hexDistance,hexDisk,hexRound,canCarry}=AntGame;
 const dist=(a,b)=>hexDistance(a,b);
 const heading=(dq,dr)=>Math.atan2(Math.sqrt(3)*(dr+dq/2),1.5*dq);
 const isWorkerMorph=type=>['worker','minor','media','major','supermajor'].includes(type);
@@ -188,7 +188,7 @@ class Simulation {
  distributeDestinations(count,center){return AntGame.TaskEngine.distributeDestinations(this.world,count,center);}
  moveGroup(units,target,queue=false){return AntGame.TaskEngine.moveGroup(this,units,target,queue);}
  move(a,target){if(!a.alive||a.colonyId!==1)return 'You can order only living ants in your colony.';const c=this.world.peek(target.x,target.y);if(!c?.discovered||c.solid||c.water>=6||pathfind(this.world,a,target,a.clearanceNeeded||1)===null)return 'No accessible revealed route to that location.';a.task=null;a.preferred=null;a.held=true;a.manualOrder=true;a.idleReleaseTimer=0;a.pendingTask=null;a.path=[];if(a.carry){a.pendingMove={...target};this.toStore(a);}else this.route(a,target,'moving');return null;}
- designate(x,y,ant=null,colonyId=1){const c=this.world.peek(x,y);if(c&&c.discovered){if(c.rock||c.zone==='rock'){if(colonyId===1)AntGame.AudioCoordinator?.play('rockStrike');return false;}if(!c.solid)return false;}const id=`${colonyId}:dig:${key(x,y)}`;if(!this.jobs.some(j=>j.id===id)){let status='unknown';const nestPos=colonyId===1?this.nest:(this.colonies.find(cl=>cl.id===colonyId)?.pit||{x,y});if(c&&(c.discovered||colonyId!==1)){const faces=this.world.faces(c,colonyId===1);status=faces.some(f=>pathfind(this.world,nestPos,f)!==null)?'available':'blocked';}this.jobs.push({id,type:'dig',x,y,colonyId,priority:1,status});}if(ant&&isWorkerMorph(ant.type)&&ant.canMine!==false&&ant.alive&&ant.colonyId===colonyId){ant.preferred=id;ant.held=false;ant.manualOrder=true;ant.idleReleaseTimer=0;}return true;}
+ designate(x,y,ant=null,colonyId=1){const c=this.world.peek(x,y);if(!c)return false;if(c.rock||c.zone==='rock'){if(colonyId===1)AntGame.AudioCoordinator?.play('rockStrike');return false;}if(c.discovered&&!c.solid)return false;const id=`${colonyId}:dig:${key(x,y)}`;if(!this.jobs.some(j=>j.id===id)){let status='unknown';const nestPos=colonyId===1?this.nest:(this.colonies.find(cl=>cl.id===colonyId)?.pit||{x,y});if(c&&(c.discovered||colonyId!==1)){const faces=this.world.faces(c,colonyId===1);status=faces.some(f=>pathfind(this.world,nestPos,f)!==null)?'available':'blocked';}this.jobs.push({id,type:'dig',x,y,colonyId,priority:1,status});}if(ant&&isWorkerMorph(ant.type)&&ant.canMine!==false&&ant.alive&&ant.colonyId===colonyId){ant.preferred=id;ant.held=false;ant.manualOrder=true;ant.idleReleaseTimer=0;}return true;}
  designateBuild(x,y,ant=null,structure='food'){return AntGame.Construction.designateBuild(this,x,y,ant,structure);}
  ensureExcavationJob(build,c){return AntGame.Construction.ensureExcavationJob(this,build,c);}
  brush(x,y,r,mode='dig',ants=[],structure='food'){
@@ -307,7 +307,7 @@ class Simulation {
     if(a.colonyId===1){
      if(a.feeder&&a.carry?.type==='food'){
       const q=this.queen();
-      if(q&&(q.food??200)<(q.maxFood||200)*(C.queenFeedThresholdRatio||0.80)){
+      if(q&&(q.food??200)<(q.maxFood||200)*0.98){
        return {point:this.nest,kind:'queen'};
       }
      }
@@ -320,13 +320,13 @@ class Simulation {
    }
    if(a.carry?.type==='water'){
     if(a.colonyId===1){
-      const q=this.queen();
-      const queenNeedsWater=q&&(q.water??100)<(q.maxWater||100)*(C.queenWaterThresholdRatio||0.80);
-      if(queenNeedsWater){
-       return {point:this.nest,kind:'queen'};
-      }
-      if(this.waterTarget==='reservoir'){const r=this.reservoirDestination(a);if(r)return r;}
+     const q=this.queen();
+     const queenNeedsWater=q&&(q.water??100)<(q.maxWater||100)*0.98;
+     if(queenNeedsWater){
       return {point:this.nest,kind:'queen'};
+     }
+     if(this.waterTarget==='reservoir'){const r=this.reservoirDestination(a);if(r)return r;}
+     return {point:this.nest,kind:'queen'};
     }else{
      const col=this.colonies.find(c=>c.id===a.colonyId);
      return col?{point:col.waterStore||{x:col.x-1,y:col.y},kind:'water-store',colonyId:col.id}:null;
@@ -423,12 +423,16 @@ class Simulation {
   assign(a){return AntGame.TaskEngine.assign(this,a);}
   feederNeed(){
    const q=this.queen();
-   const qWaterThresh=(q?.maxWater||100)*(C.queenWaterThresholdRatio||0.80);
-   const qFoodThresh=(q?.maxFood||200)*(C.queenFeedThresholdRatio||0.80);
+   if(q){
+    if(q.tendingWater){if((q.water??100)>=(q.maxWater||100)*0.98)q.tendingWater=false;}
+    else if((q.water??100)<(q.maxWater||100)*(C.queenWaterThresholdRatio||0.80))q.tendingWater=true;
+    if(q.tendingFood){if((q.food??200)>=(q.maxFood||200)*0.98)q.tendingFood=false;}
+    else if((q.food??200)<(q.maxFood||200)*(C.queenFeedThresholdRatio||0.80))q.tendingFood=true;
+   }
    if(q&&(q.water??100)<=20)return 'water';
    if(q&&(q.food??200)<=20)return 'food';
-   if(q&&(q.water??100)<qWaterThresh)return 'water';
-   if(q&&(q.food??200)<qFoodThresh)return 'food';
+   if(q&&q.tendingWater)return 'water';
+   if(q&&q.tendingFood)return 'food';
    if(this.waterTarget==='reservoir'&&this.reservoirWater()<this.waterStore.tiles.length*C.waterStoragePerTile)return 'water';
    if(this.water<this.waterCapacity()*(C.queenWaterThresholdRatio||0.80))return 'water';
    if(this.food<this.foodCapacity()*(C.queenFeedThresholdRatio||0.80))return 'food';
@@ -439,7 +443,11 @@ class Simulation {
    if(need==='food'){
     if(a.actions?.gatherFood===false||a.actions?.selfFeed===false)return null;
     const q=this.queen();
-    const queenNeedsFood=q&&(q.food??200)<(q.maxFood||200)*(C.queenFeedThresholdRatio||0.80);
+    if(q){
+     if(q.tendingFood){if((q.food??200)>=(q.maxFood||200)*0.98)q.tendingFood=false;}
+     else if((q.food??200)<(q.maxFood||200)*(C.queenFeedThresholdRatio||0.80))q.tendingFood=true;
+    }
+    const queenNeedsFood=q&&Boolean(q.tendingFood);
     if(queenNeedsFood&&this.food>=1){
      const pt=AntGame.Inventory?.getFoodSourceTile(this,a);
      if(pt&&pathfind(this.world,a,pt)!==null)return {point:pt,x:pt.x,y:pt.y,feedKind:'colony-food',kind:'colony-food'};
@@ -451,7 +459,11 @@ class Simulation {
    }
    if(a.actions?.gatherWater===false||a.actions?.selfWater===false)return null;
    const q=this.queen();
-   const queenNeedsWater=q&&(q.water??100)<(q.maxWater||100)*(C.queenWaterThresholdRatio||0.80);
+   if(q){
+    if(q.tendingWater){if((q.water??100)>=(q.maxWater||100)*0.98)q.tendingWater=false;}
+    else if((q.water??100)<(q.maxWater||100)*(C.queenWaterThresholdRatio||0.80))q.tendingWater=true;
+   }
+   const queenNeedsWater=q&&Boolean(q.tendingWater);
    if(queenNeedsWater&&this.water>=1){
     if(pathfind(this.world,a,this.nest)!==null)return {point:this.nest,x:this.nest.x,y:this.nest.y,feedKind:'colony-water',kind:'colony-water'};
    }
@@ -667,7 +679,11 @@ class Simulation {
        if(load.type==='water'){
         const needed=q?Math.max(0,(q.maxWater||100)-(q.water||0)):0;
         const give=Math.min(load.amount,needed);
-        if(q&&give>0){q.water=(q.water||0)+give;AntGame.AudioCoordinator?.play('antDrink');}
+        if(q&&give>0){
+         q.water=(q.water||0)+give;
+         if((q.water||0)>=(q.maxWater||100)*0.98)q.tendingWater=false;
+         AntGame.AudioCoordinator?.play('antDrink');
+        }
         const surplus=load.amount-give;
         if(surplus>0){
          if(this.waterTarget==='reservoir'){
@@ -688,7 +704,11 @@ class Simulation {
         if(a.feeder && (a.task?.type==='feed-queen' || a.task?.type==='feed-food')){
          const needed=q?Math.max(0,(q.maxFood||200)-(q.food||0)):0;
          const give=Math.min(load.amount,needed);
-         if(q&&give>0){q.food=(q.food||0)+give;AntGame.AudioCoordinator?.play('antEat');}
+         if(q&&give>0){
+          q.food=(q.food||0)+give;
+          if((q.food||0)>=(q.maxFood||200)*0.98)q.tendingFood=false;
+          AntGame.AudioCoordinator?.play('antEat');
+         }
          const surplus=load.amount-give;
          if(surplus>0)this.addFood(surplus,load.foodType);
         }else{
@@ -736,12 +756,17 @@ class Simulation {
      const t=a.task?.source;const maxCap=a.maxCarry||C.carryCapacity;
      if(t?.kind==='colony-water'||t?.feedKind==='colony-water'){
       const q=this.queen();
-      const queenNeedsWater=q&&(q.water??100)<(q.maxWater||100)*(C.queenWaterThresholdRatio||0.80);
+      if(q){
+       if(q.tendingWater){if((q.water??100)>=(q.maxWater||100)*0.98)q.tendingWater=false;}
+       else if((q.water??100)<(q.maxWater||100)*(C.queenWaterThresholdRatio||0.80))q.tendingWater=true;
+      }
+      const queenNeedsWater=q&&Boolean(q.tendingWater);
       if(queenNeedsWater&&this.water>0){
        const take=Math.min(C.waterDropValue||20,this.water,(q.maxWater||100)-(q.water||0));
        if(take>=1){
         this.spendWater(take);
         q.water=Math.min(q.maxWater||100,(q.water||0)+take);
+        if((q.water||0)>=(q.maxWater||100)*0.98)q.tendingWater=false;
         AntGame.AudioCoordinator?.play('antDrink');
         this.emit(`Feeder hydrated the queen (+${Math.round(take)} water).`);
        }
@@ -765,7 +790,11 @@ class Simulation {
      }
      if(t?.kind==='colony-food'||t?.feedKind==='colony-food'){
       const q=this.queen();
-      const queenNeedsFood=q&&(q.food??200)<(q.maxFood||200)*(C.queenFeedThresholdRatio||0.80);
+      if(q){
+       if(q.tendingFood){if((q.food??200)>=(q.maxFood||200)*0.98)q.tendingFood=false;}
+       else if((q.food??200)<(q.maxFood||200)*(C.queenFeedThresholdRatio||0.80))q.tendingFood=true;
+      }
+      const queenNeedsFood=q&&Boolean(q.tendingFood);
       if(!queenNeedsFood){
        a.state='idle';a.task=null;a.timer=C.queenFeedCooldownSeconds||3.0;return;
       }
@@ -985,22 +1014,27 @@ class Simulation {
      q.water=Math.max(0,(q.water??(C.queenWaterCapacity||100))-C.waterDrainPerSecond*dt);
      q.maxFood=C.queenFoodCapacity||200;
      q.maxWater=C.queenWaterCapacity||100;
-     q.threatId=null;
-     let damage=0;
-     if(q.food<=0.01){
-      damage+=3;this.warnStarvingTimer=(this.warnStarvingTimer||0)-dt;
-      if(this.warnStarvingTimer<=0){this.emit('QUEEN IS STARVING! Queen health is dropping!');this.warnStarvingTimer=8;}
-     }else{this.warnStarvingTimer=0;}
-     if(q.water<=0.01){
-      damage+=5;this.warnDehydratedTimer=(this.warnDehydratedTimer||0)-dt;
-      if(this.warnDehydratedTimer<=0){this.emit('QUEEN IS DEHYDRATED! Queen health is dropping!');this.warnDehydratedTimer=8;}
-     }else{this.warnDehydratedTimer=0;}
-     if(damage){
-      q.health-=damage*dt;
-      if(q.health<=0){this.kill(q);return;}
-     }else if(q.food>20&&q.water>20&&q.health<q.maxHealth){
-      q.health=Math.min(q.maxHealth,q.health+10*dt);
-     }
+      if(q.combatTimer>0)q.combatTimer-=dt;
+      if(q.threatId){
+       const threat=this.creatures.find(c=>c.id===q.threatId&&c.alive);
+       if(!threat&&q.threatId!=='spider-threat')q.threatId=null;
+      }
+      let damage=0;
+      if(q.food<=0.01){
+       damage+=3;this.warnStarvingTimer=(this.warnStarvingTimer||0)-dt;
+       if(this.warnStarvingTimer<=0){this.emit('QUEEN IS STARVING! Queen health is dropping!');this.warnStarvingTimer=8;}
+      }else{this.warnStarvingTimer=0;}
+      if(q.water<=0.01){
+       damage+=5;this.warnDehydratedTimer=(this.warnDehydratedTimer||0)-dt;
+       if(this.warnDehydratedTimer<=0){this.emit('QUEEN IS DEHYDRATED! Queen health is dropping!');this.warnDehydratedTimer=8;}
+      }else{this.warnDehydratedTimer=0;}
+      const queenInCombat=(q.combatTimer>0)||Boolean(q.threatId)||this.creatures.some(c=>c.alive&&(Species[c.species]?.behavior==='aggressive'||c.provoked)&&hexDistance(c,q)<=6);
+      if(damage){
+       q.health-=damage*dt;
+       if(q.health<=0){this.kill(q);return;}
+      }else if(q.food>20&&q.water>20&&q.health<q.maxHealth&&!queenInCombat){
+       q.health=Math.min(q.maxHealth,q.health+0.5*dt);
+      }
      q.layTimer-=dt;
      if(q.layTimer<=0){if(this.layEgg(q))q.layTimer+=C.eggInterval;else q.layTimer=Math.min(5,C.eggInterval);}
     }else if(col&&col.state==='active'){
