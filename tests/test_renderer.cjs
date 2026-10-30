@@ -2,9 +2,10 @@ const assert = require('node:assert/strict');
 globalThis.window = globalThis;
 globalThis.devicePixelRatio = 1;
 
-for (const f of ['config', 'data', 'world', 'climate', 'audio', 'ecology', 'brood', 'tasks', 'construction', 'inventory', 'simulation', 'creatures', 'renderer']) {
+for (const f of ['config', 'data', 'world', 'surface_world', 'climate', 'audio', 'ecology', 'surface_ecology', 'brood', 'tasks', 'construction', 'inventory', 'simulation', 'creatures', 'surface_renderer', 'renderer']) {
   require('../src/' + f + '.js');
 }
+
 
 const { Simulation, Renderer, Species } = AntGame;
 
@@ -184,4 +185,27 @@ const elapsed = performance.now() - start;
 const msPerFrame = elapsed / frames;
 console.log(`✔ Benchmark: ${frames} full frames rendered in ${elapsed.toFixed(1)}ms (${msPerFrame.toFixed(3)} ms/frame)`);
 assert.ok(msPerFrame < 5.0, `Frame time ${msPerFrame} ms exceeds budget!`);
+
+console.log('Testing SurfaceRenderer draw cycle with surface entities...');
+sim.switchLayer();
+assert.strictEqual(sim.activeLayer, 'surface');
+// Spawn entities on surface
+const surfaceAnt = sim.ants[0];
+surfaceAnt.layer = 1; surfaceAnt.x = 1; surfaceAnt.y = -25;
+sim.surfaceWorld.get(1, -25).discovered = true;
+sim.surfaceWorld.revealConnectedEntrance(0, -25);
+sim.resources.push({ id: 'surf-res', layer: 1, x: 2, y: -25, remaining: 10, foodType: 'seeds' });
+sim.surfaceWorld.get(2, -25).discovered = true;
+sim.commandMarkers.push({ x: 1, y: -25, layer: 1, color: '#48a8cf', life: 4 });
+
+const surfStart = performance.now();
+for (let f = 0; f < 50; f++) {
+  sim.time += 1 / 30;
+  renderer.draw(sim, null, 'move');
+}
+const surfElapsed = performance.now() - surfStart;
+console.log(`✔ Surface Benchmark: 50 frames rendered in ${surfElapsed.toFixed(1)}ms (${(surfElapsed / 50).toFixed(3)} ms/frame)`);
+assert.ok((surfElapsed / 50) < 5.0, 'Surface frame time exceeds budget');
+
 console.log('ALL RENDERER TESTS PASSED SUCCESSFULLY!');
+

@@ -225,26 +225,45 @@ class BroodSystem {
   return sim.eggs.find(e => e.colonyId === a.colonyId && (e.health === undefined || e.health > 0) && e.stage === 'larva' && (e.foodAccumulated || 0) < reqFood && (!e.beingFedBy || e.beingFedBy === a.id));
  }
 
- static findMisplacedBrood(sim, a) {
-  const hatcheries = this.getHatcheries(sim.world).filter(h => h.isValid);
-  const hatcheryKeys = new Set();
-  for (const h of hatcheries) for (const t of h.tiles) hatcheryKeys.add(key(t.x, t.y));
-  return sim.eggs.find(e => e.colonyId === a.colonyId && (e.health === undefined || e.health > 0) && !e.carriedBy && (!e.beingTransportedBy || e.beingTransportedBy === a.id) && (!hatcheryKeys.has(key(Math.round(e.x), Math.round(e.y))) || (sim.world.peek(Math.round(e.x), Math.round(e.y))?.water || 0) >= 4));
- }
+  static findMisplacedBrood(sim, a) {
+   if (a.colonyId !== 1) {
+    const col = sim.colonies?.find(c => c.id === a.colonyId);
+    return sim.eggs.find(e => e.colonyId === a.colonyId && (e.health === undefined || e.health > 0) && !e.carriedBy && (!e.beingTransportedBy || e.beingTransportedBy === a.id) && ((col && hexDistance({ x: Math.round(e.x), y: Math.round(e.y) }, col) > 6) || (sim.world.peek(Math.round(e.x), Math.round(e.y))?.water || 0) >= 4));
+   }
+   const hatcheries = this.getHatcheries(sim.world).filter(h => h.isValid);
+   const hatcheryKeys = new Set();
+   for (const h of hatcheries) for (const t of h.tiles) hatcheryKeys.add(key(t.x, t.y));
+   return sim.eggs.find(e => e.colonyId === a.colonyId && (e.health === undefined || e.health > 0) && !e.carriedBy && (!e.beingTransportedBy || e.beingTransportedBy === a.id) && (!hatcheryKeys.has(key(Math.round(e.x), Math.round(e.y))) || (sim.world.peek(Math.round(e.x), Math.round(e.y))?.water || 0) >= 4));
+  }
 
- static findFreeHatcheryTile(sim, a) {
-  const hatcheries = this.getHatcheries(sim.world).filter(h => h.isValid);
-  const occupiedKeys = new Set(sim.eggs.filter(e => !e.carriedBy).map(e => key(Math.round(e.x), Math.round(e.y))));
-  for (const h of hatcheries) {
-   for (const t of h.tiles) {
-    const k = key(t.x, t.y);
-    if (!occupiedKeys.has(k) && (t.water || 0) < 4 && AntGame.pathfind(sim.world, a, t) !== null) {
-     return t;
+  static findFreeHatcheryTile(sim, a) {
+   if (a.colonyId !== 1) {
+    const col = sim.colonies?.find(c => c.id === a.colonyId);
+    if (!col) return null;
+    const occupiedKeys = new Set(sim.eggs.filter(e => !e.carriedBy).map(e => key(Math.round(e.x), Math.round(e.y))));
+    for (let r = 1; r <= 3; r++) {
+     for (const p of AntGame.hexDisk(col.x, col.y, r)) {
+      const k = key(p.x, p.y);
+      const c = sim.world.peek(p.x, p.y);
+      if (c && !c.solid && (c.water || 0) < 4 && !occupiedKeys.has(k) && AntGame.pathfind(sim.world, a, p) !== null) {
+       return p;
+      }
+     }
+    }
+    return null;
+   }
+   const hatcheries = this.getHatcheries(sim.world).filter(h => h.isValid);
+   const occupiedKeys = new Set(sim.eggs.filter(e => !e.carriedBy).map(e => key(Math.round(e.x), Math.round(e.y))));
+   for (const h of hatcheries) {
+    for (const t of h.tiles) {
+     const k = key(t.x, t.y);
+     if (!occupiedKeys.has(k) && (t.water || 0) < 4 && AntGame.pathfind(sim.world, a, t) !== null) {
+      return t;
+     }
     }
    }
+   return null;
   }
-  return null;
- }
 
  static rollMutations(brood, mutationTier, random) {
   const mult = brood.mutationMultiplier || 1.0;
@@ -295,7 +314,7 @@ class BroodSystem {
    }
 
    // Legacy saves or tests without stage: hatch directly
-   if ((!e.stage || e.colonyId !== 1)) {
+   if (!e.stage) {
     e.age = (e.age || 0) + dt;
     if (e.age >= e.duration) {
      const cap = e.colonyId === 1 ? sim.colonyCapacity() : (sim.colonies.find(c => c.id === e.colonyId)?.capacity || C.startingColonyCap);
@@ -306,11 +325,17 @@ class BroodSystem {
     }
    }
 
-   // 1. Egg Stage -> Larva (must be in a valid enclosed hatchery)
+   // 1. Egg Stage -> Larva (must be in a valid enclosed hatchery or AI colony territory)
    if (e.stage === 'egg') {
-    const hatcheries = this.getHatcheries(sim.world).filter(h => h.isValid);
-    const inValidHatchery = hatcheries.some(h => h.tiles.some(t => t.x === Math.round(e.x) && t.y === Math.round(e.y)));
-    if (!inValidHatchery && e.colonyId === 1) {
+    let inValidHatchery = false;
+    if (e.colonyId === 1) {
+     const hatcheries = this.getHatcheries(sim.world).filter(h => h.isValid);
+     inValidHatchery = hatcheries.some(h => h.tiles.some(t => t.x === Math.round(e.x) && t.y === Math.round(e.y)));
+    } else {
+     const col = sim.colonies?.find(c => c.id === e.colonyId);
+     inValidHatchery = col ? (hexDistance({ x: Math.round(e.x), y: Math.round(e.y) }, col) <= 6) : true;
+    }
+    if (!inValidHatchery) {
      // Eggs outside a valid hatchery do not advance past stage one
      if (e.age < e.duration * speedMult) {
       e.age = Math.min(e.duration * speedMult, (e.age || 0) + dt);
@@ -355,19 +380,21 @@ class BroodSystem {
      if (sim.livingPopulation(e.colonyId) < cap) {
       const caste = e.assignedAntType || 'worker';
       const ant = sim.addAnt(caste, Math.round(e.x), Math.round(e.y), e.colonyId);
-      if (ant && e.colonyId === 1) {
-       const muts = this.rollMutations(e, sim.mutationEnhancerTier || 0, sim.random);
+      if (ant) {
+       const mutTier = e.colonyId === 1 ? (sim.mutationEnhancerTier || 0) : 1;
+       const muts = this.rollMutations(e, mutTier, sim.random);
        if (muts.length) {
         ant.mutations = muts;
         for (const m of muts) {
          if (m.stat === 'maxCarry') ant[m.stat] = (ant[m.stat] || 5) + m.value;
          else ant[m.stat] = (ant[m.stat] || 1) * (1 + m.value);
         }
-        sim.emit(`Adult ${caste} emerged with mutation: ${muts.map(m => m.name).join(', ')}!`);
-       } else {
+        if (e.colonyId === 1) sim.emit(`Adult ${caste} emerged with mutation: ${muts.map(m => m.name).join(', ')}!`);
+       } else if (e.colonyId === 1) {
         sim.emit(`A new adult ${caste} has emerged from its pupa!`);
        }
-       AntGame.AudioCoordinator?.play('eggHatch');
+       if (e.colonyId === 1) AntGame.AudioCoordinator?.play('eggHatch');
+       if (sim.telemetry) sim.telemetry.recordBroodHatch(ant);
       }
      }
      sim.eggs.splice(sim.eggs.indexOf(e), 1);

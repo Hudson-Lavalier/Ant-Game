@@ -18,25 +18,62 @@ class Construction {
  }
 
  static designateBuild(sim, x, y, ant=null, structure='food') {
-  const c = sim.world.peek(x, y);
+  const activeWorld = sim.getActiveWorld ? sim.getActiveWorld() : sim.world;
+  const c = activeWorld.peek(x, y);
   if (!c?.discovered) return false;
   if (c.rock || c.zone === 'rock') {
    AntGame.AudioCoordinator?.play('rockStrike');
    return false;
   }
   if (this.isHole(sim, c, x, y)) return false;
+
+  const isSurface = (sim.activeLayer === 'surface') || (c.layer === 1);
+  if (isSurface) {
+   const surfaceAllowed = ['dirt', 'compacted_dirt', 'trench', 'rough_dirt', 'smooth_floor'];
+   if (!surfaceAllowed.includes(structure)) {
+    sim.emit(`Brood and deep colony chambers (${structure}) can only be constructed underground.`);
+    return false;
+   }
+  }
+
+  const def = AntGame.BuildTypes ? AntGame.BuildTypes[structure] : null;
+  if (def?.unlockTrait) {
+   const hasTrait = (sim.traits && sim.traits.includes(def.unlockTrait)) || (sim.traitLevels && sim.traitLevels[def.unlockTrait] > 0);
+   if (!hasTrait) {
+    sim.emit(`Cannot build ${def.name}: unlock ${def.unlockTrait} evolution first.`);
+    return false;
+   }
+  }
+  if (!isSurface && c.zone !== 'stream' && c.zone !== 'pond' && c.zone !== 'puddle' && structure === 'dirt' && (c.water || 0) >= 1.0) {
+   sim.emit('Cannot place dirt in standing water (water level must be below 1).');
+   return false;
+  }
+  if (structure === 'compacted_dirt' && (c.zone === 'trench' || c.structure === 'trench')) {
+   sim.emit('Cannot build compacted dirt directly on a trench.');
+   return false;
+  }
+
   const id = `1:build:${structure}:${key(x, y)}`;
+  const jobLayer = isSurface ? 1 : 0;
   if (!sim.jobs.some(j => j.id === id)) {
-   const excNeeded = structure === 'water' ? 2 : 0;
-   const isHatchery = structure === 'hatchery_floor' || structure === 'hatchery_wall';
-   const bFood = isHatchery ? 5 : C.buildFoodCost, bDirt = isHatchery ? 3 : C.buildDirtCost;
+   const excNeeded = def ? def.excavations : (structure === 'water' ? 2 : structure === 'trench' ? 1 : 0);
+   const bFood = def ? def.food : (structure === 'food' ? 3 : structure === 'water' ? 5 : 0);
+   const bDirt = def ? def.dirt : (structure === 'dirt' ? 1 : structure === 'compacted_dirt' ? 5 : structure === 'trench' ? 0 : 1);
    let status = 'blocked';
    if (c.solid || (c.excavations || 0) < excNeeded) {
     status = 'undug';
    } else {
-    status = pathfind(sim.world, sim.nest, c) ? (sim.food >= bFood && sim.world.pit.used >= bDirt ? 'available' : 'resources') : 'blocked';
+    const isWater = (c.water || 0) >= 6 || c.terrain === 'water' || c.zone === 'stream' || c.zone === 'pond';
+    let reachable = false;
+    if (isWater) {
+     const faces = activeWorld.faces(c, true);
+     reachable = faces.some(f => pathfind(activeWorld, sim.nest, f) !== null);
+    } else {
+     reachable = pathfind(activeWorld, sim.nest, c) !== null;
+    }
+    status = reachable ? (sim.food >= bFood && sim.world.pit.used >= bDirt ? 'available' : 'resources') : 'blocked';
    }
-   sim.jobs.push({ id, type: 'build', structure, x, y, colonyId: 1, priority: 2, status, food: bFood, dirt: bDirt, excavations: excNeeded });
+   sim.jobs.push({ id, type: 'build', structure, x, y, layer: jobLayer, colonyId: 1, priority: 2, status, food: bFood, dirt: bDirt, excavations: excNeeded });
   }
   const build = sim.jobs.find(j => j.id === id);
   if (c.solid) {
@@ -67,7 +104,9 @@ class Construction {
 
  static refreshJobStates(sim) {
   for (const j of [...sim.jobs]) {
-   const c = sim.world.peek(j.x, j.y);
+   const targetLayer = j.layer !== undefined ? j.layer : (j.id?.startsWith('surface:') ? 1 : 0);
+   const targetWorld = targetLayer === 1 ? (sim.surfaceWorld || sim.world) : sim.world;
+   const c = targetWorld.peek(j.x, j.y);
    const nestPos = j.colonyId === 1 ? sim.nest : (sim.colonies.find(cl => cl.id === j.colonyId)?.pit || { x: j.x, y: j.y });
    if (!c || (!c.discovered && j.colonyId === 1)) { j.status = 'unknown'; continue; }
    if (c.rock || c.zone === 'rock') { sim.jobs = sim.jobs.filter(job => job !== j); continue; }
@@ -79,11 +118,19 @@ class Construction {
      if (!c.solid) this.ensureExcavationJob(sim, j, c);
      continue;
     }
-    j.status = pathfind(sim.world, nestPos, c) ? (sim.food >= j.food && sim.world.pit.used >= j.dirt ? 'available' : 'resources') : 'blocked';
+    const isWater = (c.water || 0) >= 6 || c.terrain === 'water' || c.zone === 'stream' || c.zone === 'pond';
+    let reachable = false;
+    if (isWater) {
+     const faces = targetWorld.faces(c, j.colonyId === 1);
+     reachable = faces.some(f => pathfind(targetWorld, nestPos, f) !== null);
+    } else {
+     reachable = pathfind(targetWorld, nestPos, c) !== null;
+    }
+    j.status = reachable ? (sim.food >= j.food && sim.world.pit.used >= j.dirt ? 'available' : 'resources') : 'blocked';
     continue;
    }
-   const faces = sim.world.faces(c, j.colonyId === 1);
-   j.status = faces.some(f => pathfind(sim.world, nestPos, f) !== null) ? 'available' : 'blocked';
+   const faces = targetWorld.faces(c, j.colonyId === 1);
+   j.status = faces.some(f => pathfind(targetWorld, nestPos, f) !== null) ? 'available' : 'blocked';
   }
  }
 
@@ -99,10 +146,7 @@ class Construction {
    a.state = 'building';
    a.timer = 0;
    a.packSoundTimer = 0;
-   if (!sim.route(a, { x: job.x, y: job.y }, 'building')) {
-    a.state = 'build-blocked';
-    a.timer = 2;
-   }
+   this.routeToBuild(sim, a);
    return;
   }
 
@@ -134,15 +178,18 @@ class Construction {
     a.timer = 2;
     return;
    }
+   const pit = sim.world.pit;
    a.state = 'to-build-supply';
    a.task.fetchType = 'dirt';
-   a.task.pit = { x: sim.world.pit.x, y: sim.world.pit.y };
-   if (!sim.route(a, sim.world.pit, 'to-build-supply')) {
+   a.task.pit = { x: pit.x, y: pit.y };
+   if (!sim.route(a, pit, 'to-build-supply')) {
     a.state = 'blocked';
     a.timer = 1;
    }
    return;
   }
+
+  this.routeToBuild(sim, a);
  }
 
  static routeToBuild(sim, a) {
@@ -151,14 +198,17 @@ class Construction {
    a.path = [];
    return;
   }
-  const target = { x: a.task.x, y: a.task.y };
-  const isSolid = a.task.structure === 'hatchery_wall';
+  const targetLayer = a.task.layer !== undefined ? a.task.layer : (a.layer || 0);
+  const targetWorld = targetLayer === 1 ? (sim.surfaceWorld || sim.world) : sim.world;
+  const target = { x: a.task.x, y: a.task.y, layer: targetLayer };
+  const cell = targetWorld.get(target.x, target.y);
+  const isSolid = a.task.structure === 'hatchery_wall' || a.task.structure === 'compacted_dirt' || (a.task.structure === 'dirt' && cell.zone !== 'trench' && cell.structure !== 'trench' && !((cell.water || 0) >= 1.0 || cell.terrain === 'water'));
+  const isWater = (cell.water || 0) >= 6 || cell.terrain === 'water' || cell.zone === 'stream' || cell.zone === 'pond';
   let dest = target;
-  if (isSolid) {
-   const cell = sim.world.get(target.x, target.y);
-   const faces = sim.world.faces(cell);
-   const openFace = faces.find(f => !f.solid && AntGame.pathfind(sim.world, a, f) !== null);
-   if (openFace) dest = openFace;
+  if (isSolid || isWater) {
+   const faces = targetWorld.faces(cell);
+   const openFace = faces.find(f => !f.solid && (f.water || 0) < 6 && sim.canReach(a, f, targetLayer));
+   if (openFace) dest = { x: openFace.x, y: openFace.y, layer: targetLayer };
   }
   if (!sim.route(a, dest, a.state || 'delivering-build-material')) {
    a.state = 'build-blocked';
@@ -200,7 +250,7 @@ class Construction {
 
     if (tileCell && tileCell.food !== undefined) tileCell.food -= take;
     sim.spendFood(take);
-    a.carry = { type: 'construction', material: 'food', food: take, dirt: 0, buildId: job.id };
+    a.carry = { type: 'construction', material: 'food', foodType: 'processed', food: take, dirt: 0, buildId: job.id };
     a.state = 'delivering-build-material';
     this.routeToBuild(sim, a);
     return true;
@@ -282,20 +332,26 @@ class Construction {
     a.packSoundTimer = 0;
    }
    if (a.timer >= C.buildSeconds) {
-    const c = sim.world.get(a.task.x, a.task.y), kind = a.task.structure || 'food';
-    c.zone = kind === 'water' ? 'water-store' : kind === 'spoil' ? 'spoil' : kind === 'hatchery_floor' ? 'hatchery-floor' : kind === 'hatchery_wall' ? 'hatchery-wall' : 'food-store';
+    const targetLayer = a.task.layer !== undefined ? a.task.layer : (a.layer || 0);
+    const targetWorld = targetLayer === 1 ? (sim.surfaceWorld || sim.world) : sim.world;
+    const c = targetWorld.get(a.task.x, a.task.y), kind = a.task.structure || 'food';
     c.structure = kind;
     c.builtDirt = a.task.deliveredDirt || a.task.dirt || 0;
     c.discovered = true;
     if (kind === 'water') {
+     c.zone = 'water-store';
      c.waterStorage = true;
      c.water = 0;
      c.excavations = 2;
      sim.waterStore.tiles.push({ x: c.x, y: c.y, water: 0, items: [] });
+    } else if (kind === 'spoil') {
+     c.zone = 'spoil';
     } else if (kind === 'food') {
+     c.zone = 'food-store';
      sim.foodStore.tiles++;
     } else if (kind === 'hatchery_wall') {
-     const openNeighbor = sim.world.neighbors(c.x, c.y).find(n => !n.solid);
+     c.zone = 'hatchery-wall';
+     const openNeighbor = targetWorld.neighbors(c.x, c.y).find(n => !n.solid);
      for (const ant of sim.ants) {
       if (ant.alive && Math.round(ant.x) === c.x && Math.round(ant.y) === c.y) {
        if (openNeighbor) {
@@ -313,10 +369,70 @@ class Construction {
      }
      c.solid = true;
     } else if (kind === 'hatchery_floor') {
+     c.zone = 'hatchery-floor';
      c.solid = false;
+    } else if (kind === 'dirt') {
+     if (c.zone === 'trench' || c.structure === 'trench') {
+      c.solid = false;
+      c.zone = 'soil';
+      c.structure = null;
+      c.water = 0;
+      c.excavations = 0;
+     } else if (c.terrain === 'water' || c.zone === 'stream' || c.zone === 'pond' || (c.water || 0) > 0) {
+      c.solid = false;
+      c.zone = 'causeway';
+      c.terrain = 'soil';
+      c.isBridge = true;
+      c.elevation = 1;
+      c.structure = 'earthen_bridge';
+      c.water = 0;
+      c.baselineWater = 0;
+      c.excavations = 0;
+      if (sim.surfaceWorld?.activeSurfaceWater) {
+       sim.surfaceWorld.activeSurfaceWater.delete(key(c.x, c.y));
+      }
+     } else {
+      c.solid = true;
+      c.zone = 'soil';
+      c.terrain = 'soil';
+      c.hardness = 0.85;
+      c.structure = null;
+      c.excavations = 0;
+      const openNeighbor = targetWorld.neighbors(c.x, c.y).find(n => !n.solid);
+      for (const ant of sim.ants) {
+       if (ant.alive && Math.round(ant.x) === c.x && Math.round(ant.y) === c.y) {
+        if (openNeighbor) { ant.x = openNeighbor.x; ant.y = openNeighbor.y; ant.prevX = openNeighbor.x; ant.prevY = openNeighbor.y; }
+       }
+      }
+     }
+    } else if (kind === 'rough_dirt') {
+     c.solid = false;
+     c.zone = 'rough-dirt';
+     c.structure = 'rough_dirt';
+    } else if (kind === 'compacted_dirt') {
+     c.solid = true;
+     c.zone = 'compacted-dirt';
+     c.structure = 'compacted_dirt';
+     c.hardness = 3.5;
+     const openNeighbor = sim.world.neighbors(c.x, c.y).find(n => !n.solid);
+     for (const ant of sim.ants) {
+      if (ant.alive && Math.round(ant.x) === c.x && Math.round(ant.y) === c.y) {
+       if (openNeighbor) { ant.x = openNeighbor.x; ant.y = openNeighbor.y; ant.prevX = openNeighbor.x; ant.prevY = openNeighbor.y; }
+      }
+     }
+    } else if (kind === 'trench') {
+     c.solid = false;
+     c.zone = 'trench';
+     c.structure = 'trench';
+     c.water = Math.min(3, c.water || 0);
+    } else if (kind === 'smooth_floor') {
+     c.solid = false;
+     c.zone = 'smooth-floor';
+     c.structure = 'smooth_floor';
     }
     sim.jobs = sim.jobs.filter(j => j.id !== a.task.id);
     sim.world.revision++;
+    if (targetWorld !== sim.world) targetWorld.revision++;
     sim.emit(`A ${kind.replace('_', ' ')} tile was built.`);
     if (a.colonyId === 1) AntGame.AudioCoordinator?.play('chamberBuiltComplete');
     a.task = null;

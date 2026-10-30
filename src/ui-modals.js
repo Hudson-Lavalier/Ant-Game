@@ -292,6 +292,134 @@ class UIModals {
    body: `Queen ${q ? Math.ceil(q.health) : 0} HP${q ? ` (Food ${Math.ceil(q.food || 0)} · Water ${Math.ceil(q.water || 0)})` : ''} · ${sim.jobs.length} orders<br>Food rooms: ${sim.foodStore.tiles} tiles · Water reservoirs: ${sim.waterStore.tiles.length}`
   };
  }
+
+ static renderDiagnosticsModal(container, activeTab = 'all') {
+  if (!container) return;
+  const diag = AntGame.Diagnostics;
+  if (!diag) return;
+
+  const incidents = diag.incidents || [];
+  const countFatal = incidents.filter(i => i.tier === AntGame.TIERS.FATAL).length;
+  const countInv = incidents.filter(i => i.tier === AntGame.TIERS.INVARIANT).length;
+  const countBeh = incidents.filter(i => i.tier === AntGame.TIERS.BEHAVIOR).length;
+  const countTune = incidents.filter(i => i.tier === AntGame.TIERS.TUNING).length;
+
+  let filtered = incidents;
+  if (activeTab === 'fatal') filtered = incidents.filter(i => i.tier === AntGame.TIERS.FATAL);
+  else if (activeTab === 'invariant') filtered = incidents.filter(i => i.tier === AntGame.TIERS.INVARIANT);
+  else if (activeTab === 'behavior') filtered = incidents.filter(i => i.tier === AntGame.TIERS.BEHAVIOR);
+  else if (activeTab === 'tuning') filtered = incidents.filter(i => i.tier === AntGame.TIERS.TUNING);
+
+  let html = `
+    <div class="diagnostics-modal-content">
+     <div class="diagnostics-header">
+      <h3 class="diagnostics-title">FLIGHT RECORDER &amp; DIAGNOSTICS <small>F2</small></h3>
+      <button class="close" id="diagnostics-close">×</button>
+     </div>
+     <div class="diagnostics-summary-bar">
+      <div class="diagnostics-badges">
+       <span class="diag-badge fatal">FATAL: ${countFatal}</span>
+       <span class="diag-badge invariant">INVARIANTS: ${countInv}</span>
+       <span class="diag-badge behavior">BEHAVIOR: ${countBeh}</span>
+       <span class="diag-badge tuning">TUNING: ${countTune}</span>
+      </div>
+      <div class="diagnostics-actions">
+       <button class="diag-btn" id="diag-download-btn" title="Download errors.txt to disk">Download errors.txt</button>
+       <button class="diag-btn" id="diag-copy-btn" title="Copy log text to clipboard">Copy Log</button>
+       <button class="diag-btn danger" id="diag-clear-btn" title="Clear incident buffer">Clear</button>
+      </div>
+     </div>
+     <div class="diagnostics-tabs">
+      <button class="diag-tab ${activeTab === 'all' ? 'active' : ''}" data-tab="all">All (${incidents.length})</button>
+      <button class="diag-tab ${activeTab === 'fatal' ? 'active' : ''}" data-tab="fatal">Fatal (${countFatal})</button>
+      <button class="diag-tab ${activeTab === 'invariant' ? 'active' : ''}" data-tab="invariant">Invariants (${countInv})</button>
+      <button class="diag-tab ${activeTab === 'behavior' ? 'active' : ''}" data-tab="behavior">Behavior (${countBeh})</button>
+      <button class="diag-tab ${activeTab === 'tuning' ? 'active' : ''}" data-tab="tuning">Tuning (${countTune})</button>
+     </div>
+     <div class="diagnostics-log-container">
+   `;
+
+  if (filtered.length === 0) {
+   html += `<div class="diag-empty">No incidents recorded in this category. System operating within nominal parameters.</div>`;
+  } else {
+   const reversed = filtered.slice().reverse();
+   for (const inc of reversed) {
+    const tagClass = inc.tier === AntGame.TIERS.FATAL ? 'fatal' :
+                     inc.tier === AntGame.TIERS.INVARIANT ? 'invariant' :
+                     inc.tier === AntGame.TIERS.BEHAVIOR ? 'behavior' : 'tuning';
+    const occ = inc.occurrences > 1 ? ` <span style="opacity:0.8">(x${inc.occurrences})</span>` : '';
+    const timeStr = inc.timestamp.split('T')[1]?.split('.')[0] || inc.timestamp;
+
+    html += `
+      <div class="diag-entry">
+       <div class="diag-entry-head">
+        <div>
+         <span class="diag-badge ${tagClass}" style="font-size:9.5px;padding:1px 5px;">${inc.tierName}</span>
+         <b style="color:#aac49e;margin-left:6px;">[${inc.subsystem}]</b>
+         <span style="color:#80947b;margin-left:4px;">${inc.code}</span>${occ}
+        </div>
+        <span class="diag-entry-meta">${timeStr}${inc.gameTime !== null ? ` · ${inc.gameTime}s` : ''}</span>
+       </div>
+       <div class="diag-entry-msg">${inc.message}</div>
+     `;
+
+    if (inc.entity) {
+     const e = inc.entity;
+     html += `
+       <div class="diag-entry-meta">
+        Entity: Ant #${e.id} (${e.caste}) | Layer: ${e.layer} | Pos: (${e.x}, ${e.y}) | HP: ${e.health} | State: ${e.state}
+        ${e.task ? ` | Task: ${e.task.type}` : ''}
+        ${e.carry ? ` | Carry: ${e.carry.type}` : ''}
+       </div>
+      `;
+     if (e.breadcrumbs && e.breadcrumbs.length > 0) {
+      const bStr = e.breadcrumbs.map(b => `(${b.x},${b.y}@L${b.layer}:${b.state})`).join(' → ');
+      html += `<div class="diag-entry-crumbs">Trail: ${bStr}</div>`;
+     }
+    }
+
+    if (inc.context?.stack) {
+     const shortStack = inc.context.stack.split('\n').slice(0, 3).join('\n');
+     html += `<div class="diag-entry-stack">${shortStack}</div>`;
+    }
+
+    html += `</div>`;
+   }
+  }
+
+  html += `</div></div>`;
+  container.innerHTML = html;
+
+  container.querySelector('#diagnostics-close')?.addEventListener('click', () => {
+   container.hidden = true;
+  });
+
+  container.querySelector('#diag-download-btn')?.addEventListener('click', () => {
+   diag.downloadErrorsTxt();
+  });
+
+  container.querySelector('#diag-copy-btn')?.addEventListener('click', () => {
+   diag.copyErrorsTxt().then(() => {
+    const btn = container.querySelector('#diag-copy-btn');
+    if (btn) {
+     const orig = btn.textContent;
+     btn.textContent = 'Copied!';
+     setTimeout(() => { btn.textContent = orig; }, 1500);
+    }
+   });
+  });
+
+  container.querySelector('#diag-clear-btn')?.addEventListener('click', () => {
+   diag.clear();
+   UIModals.renderDiagnosticsModal(container, activeTab);
+  });
+
+  container.querySelectorAll('.diag-tab').forEach(tabBtn => {
+   tabBtn.addEventListener('click', () => {
+    UIModals.renderDiagnosticsModal(container, tabBtn.dataset.tab);
+   });
+  });
+ }
 }
 
 AntGame.UIModals = UIModals;

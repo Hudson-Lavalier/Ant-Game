@@ -677,34 +677,35 @@ class CreatureRenderer {
    c.restore();
   }
 
- static draw(renderer,cr,p,z,d){
-
-   const c=renderer.ctx,kind=cr.species;
-   if(z<1.4){
-    const baseCol=adjustColor(d.color||'#815a39',cr.colorVariation||1);
-    const rad=Math.max(1.5,(kind==='hercules'?10:kind==='worm'||kind==='spider'?5:kind==='grub'?4:2.5)*z*(cr.size||1));
-    c.save();c.translate(p.x,p.y);c.globalAlpha=cr.alive?1:.42;c.fillStyle=baseCol;
-    c.beginPath();c.arc(0,0,rad,0,Math.PI*2);c.fill();
+  static draw(renderer,cr,p,z,d){
+    const kind=cr.species;
+    d=d||Species[kind]||{};
+    const c=renderer.ctx;
+    if(z<1.4){
+     const baseCol=adjustColor(d.color||'#815a39',cr.colorVariation||1);
+     const rad=Math.max(1.5,(kind==='hercules'?10:kind==='worm'||kind==='spider'||kind==='night_spider'?5:kind==='grub'?4:2.5)*z*(cr.size||1));
+     c.save();c.translate(p.x,p.y);c.globalAlpha=cr.alive?1:.42;c.fillStyle=baseCol;
+     c.beginPath();c.arc(0,0,rad,0,Math.PI*2);c.fill();
+     c.restore();
+     return;
+    }
+    if((kind==='worm'||kind==='grub')&&cr.bodyTrail?.length){this.drawSegmented(renderer,cr,z,d);return;}
+    const scale=z*(cr.size||1)*(d.visualScale||1),moving=cr.alive&&Boolean(cr.path?.length||cr.x!==cr.prevX||cr.y!==cr.prevY);
+    c.save();c.translate(p.x,p.y);c.rotate(cr.angle||0);c.scale(scale,scale);c.globalAlpha=cr.alive?1:.42;
+    if(kind==='weevil'||kind==='beetle'){this.drawWeevil(renderer,cr,moving,scale,z);}
+    else if(kind==='hercules'){this.drawHercules(renderer,cr,moving,scale,z);}
+    else if(kind==='spider'||kind==='night_spider'){this.drawSpider(renderer,cr,moving,scale,z,false);}
+    else if(kind==='baby_spider'){this.drawSpider(renderer,cr,moving,scale,z,true);}
+    else if(kind==='isopod'){this.drawIsopod(renderer,cr,moving,scale,z);}
+    else if(kind==='root_aphid'){this.drawRootAphid(renderer,cr,moving,scale,z);}
+    else if(kind==='mite'){this.drawMite(renderer,cr,moving,scale,z);}
+    else{
+     const baseCol=adjustColor(d.color||'#815a39',cr.colorVariation||1);
+     c.fillStyle=baseCol;c.strokeStyle='#211b17';c.lineWidth=.8;
+     c.beginPath();c.ellipse(0,0,4,3,0,0,Math.PI*2);c.fill();c.stroke();
+    }
     c.restore();
-    return;
    }
-   if((kind==='worm'||kind==='grub')&&cr.bodyTrail?.length){this.drawSegmented(renderer,cr,z,d);return;}
-   const scale=z*(cr.size||1)*(d.visualScale||1),moving=cr.alive&&Boolean(cr.path?.length||cr.x!==cr.prevX||cr.y!==cr.prevY);
-   c.save();c.translate(p.x,p.y);c.rotate(cr.angle||0);c.scale(scale,scale);c.globalAlpha=cr.alive?1:.42;
-   if(kind==='weevil'||kind==='beetle'){this.drawWeevil(renderer,cr,moving,scale,z);}
-   else if(kind==='hercules'){this.drawHercules(renderer,cr,moving,scale,z);}
-   else if(kind==='spider'){this.drawSpider(renderer,cr,moving,scale,z,false);}
-   else if(kind==='baby_spider'){this.drawSpider(renderer,cr,moving,scale,z,true);}
-   else if(kind==='isopod'){this.drawIsopod(renderer,cr,moving,scale,z);}
-   else if(kind==='root_aphid'){this.drawRootAphid(renderer,cr,moving,scale,z);}
-   else if(kind==='mite'){this.drawMite(renderer,cr,moving,scale,z);}
-   else{
-    const baseCol=adjustColor(d.color,cr.colorVariation||1);
-    c.fillStyle=baseCol;c.strokeStyle='#211b17';c.lineWidth=.8;
-    c.beginPath();c.ellipse(0,0,4,3,0,0,Math.PI*2);c.fill();c.stroke();
-   }
-   c.restore();
-  }
 
 }
 

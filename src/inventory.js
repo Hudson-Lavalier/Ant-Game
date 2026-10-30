@@ -37,14 +37,17 @@ class Inventory {
  }
 
  static foodCapacity(sim) {
+  if (sim.customFoodCapacity) return sim.customFoodCapacity;
   return sim.foodStore.tiles * C.foodStoragePerTile * sim.effect('foodCap');
  }
 
  static queenWaterCapacity(sim) {
+  if (sim.customWaterCapacity) return sim.customWaterCapacity;
   return C.startingWaterCapacity * sim.effect('waterCap');
  }
 
  static waterCapacity(sim) {
+  if (sim.customWaterCapacity) return sim.customWaterCapacity;
   return (C.startingWaterCapacity + sim.waterStore.tiles.length * C.waterStoragePerTile) * sim.effect('waterCap');
  }
 
@@ -105,7 +108,17 @@ class Inventory {
  }
 
  static getFoodSourceTile(sim, a) {
-  if (!sim || sim.food <= 0.001) return null;
+  if (!sim) return null;
+  if (a && a.colonyId && a.colonyId !== 1) {
+   const col = sim.colonies?.find(c => c.id === a.colonyId);
+   if (!col || (col.food || 0) <= 0.001) return null;
+   const reachable = target => target && pathfind(sim.world, a, target) !== null;
+   if (col.foodStore && reachable(col.foodStore)) return col.foodStore;
+   const nestPos = { x: col.x, y: col.y };
+   if (reachable(nestPos)) return nestPos;
+   return null;
+  }
+  if (sim.food <= 0.001) return null;
   const reachable = target => target && pathfind(sim.world, a, target) !== null;
   const candidates = [];
   for (const c of sim.world.cells.values()) {

@@ -1,5 +1,5 @@
-const test=require('node:test'),assert=require('node:assert/strict');globalThis.window=globalThis;for(const f of['config','data','world','brood','tasks','construction','inventory','ecology','audio','settings','simulation'])require('../src/'+f+'.js');const{Simulation,World,Random,rollCaste,pathfind,hexDistance,hexDisk,Ecology}=AntGame,advance=(s,n)=>{for(let i=0;i<n*30;i++)s.update(1/30)};
-test('queen needs, egg costs, cap, and stacked death rules',()=>{const s=new Simulation(1),q=s.queen();assert.equal(q.maxFood,200);const starter=s.ants.find(a=>a.type==='worker');assert.equal(starter?.colonyId,1);starter.colonyId=2;s.eggProduction=false;advance(s,900);assert.ok(q.food>99&&q.food<101&&q.water>9&&q.water<11);q.food=q.water=0;advance(s,10);assert.ok(q.health<922);advance(s,120);assert.equal(s.gameOver,true)});
+const test=require('node:test'),assert=require('node:assert/strict');globalThis.window=globalThis;for(const f of['config','data','world','spatial','brood','tasks','construction','inventory','ecology','audio','settings','simulation'])require('../src/'+f+'.js');const{Simulation,World,Random,rollCaste,pathfind,hexDistance,hexDisk,Ecology}=AntGame,advance=(s,n)=>{for(let i=0;i<n*30;i++)s.update(1/30)};
+test('queen needs, egg costs, cap, and stacked death rules',()=>{const s=new Simulation(1),q=s.queen();assert.equal(q.maxFood,200);const starter=s.ants.find(a=>a.type==='worker');assert.equal(starter?.colonyId,1);starter.colonyId=2;s.eggProduction=false;advance(s,900);assert.ok(q.food>149&&q.food<151&&q.water>54&&q.water<56);q.food=q.water=0;advance(s,10);assert.ok(q.health<922);advance(s,120);assert.equal(s.gameOver,true)});
 test('caste probabilities follow revamped worker and soldier distribution with disabled repros',()=>{const r=new Random(2);const counts={worker:0,minor:0,media:0,soldier:0,major:0,supermajor:0,queen:0,drone:0,princess:0};for(let i=0;i<1e5;i++)counts[rollCaste(r)]++;assert.ok(Math.abs(counts.worker/1e5-.65)<.01);assert.ok(Math.abs(counts.minor/1e5-.10)<.01);assert.ok(Math.abs(counts.media/1e5-.10)<.01);assert.ok(Math.abs(counts.soldier/1e5-.10)<.01);assert.ok(Math.abs(counts.major/1e5-.03)<.008);assert.ok(Math.abs(counts.supermajor/1e5-.02)<.008);assert.equal(counts.queen,0);assert.equal(counts.drone,0);assert.equal(counts.princess,0)});
 test('revamped castes initialize with exact health, speed, needs, mining, and clearance stats',()=>{const s=new Simulation(600),mn=s.addAnt('minor',s.nest.x,s.nest.y),md=s.addAnt('media',s.nest.x,s.nest.y),sl=s.addAnt('soldier',s.nest.x,s.nest.y),mj=s.addAnt('major',s.nest.x,s.nest.y),sm=s.addAnt('supermajor',s.nest.x,s.nest.y);assert.equal(mn.health,50);assert.equal(mn.speed,AntGame.Config.moveSpeed*2);assert.equal(mn.maxFoodNeed,25);assert.equal(mn.canMine,false);assert.equal(md.health,200);assert.equal(md.maxFoodNeed,100);assert.equal(sl.health,250);assert.equal(sl.maxFoodNeed,125);assert.equal(mj.health,300);assert.equal(mj.maxFoodNeed,200);assert.equal(mj.drainMult,2);assert.equal(mj.clearanceNeeded,3);assert.equal(sm.health,500);assert.equal(sm.maxFoodNeed,300);assert.equal(sm.drainMult,3);assert.equal(sm.clearanceNeeded,3)});
 test('terrain is a dense true hex disk with six neighbors and four-hex worker scans',()=>{const w=new World(3);assert.equal(w.cells.size,1+3*33*34);const c=w.peek(0,0);assert.equal(w.neighbors(c.x,c.y).length,6);assert.equal(hexDistance({x:0,y:0},{x:2,y:-1}),2);assert.equal(hexDisk(0,0,2).length,19);w.senseAt(0,0);assert.equal(w.peek(0,4).discovered,true);assert.equal(w.peek(0,5).discovered,false)});
@@ -70,7 +70,7 @@ test('canCarry enforces strict caste matrix for corpses and seeds',()=>{const s=
 test('workers physically carry corpses to storage and feeders process potential food into rations',()=>{const s=new Simulation(1102),worker=s.addAnt('worker',s.nest.x,s.nest.y),mite=Ecology.spawnCreature(s,'mite',s.nest.x+2,s.nest.y,{alive:false,food:15,state:'dead'});s.creatures.push(mite);assert.ok(!mite.inStorage);worker.state='feeding-food';worker.task={type:'feed-food',sourceKind:'corpse',targetId:mite.id};s.pickupFeed(worker);assert.ok(worker.carry);assert.equal(worker.carry.type,'corpse');assert.equal(mite.carriedBy,worker.id);worker.state='depositing';worker.timer=0;s.deposit(worker,0.1);assert.equal(mite.inStorage,true);assert.equal(mite.carriedBy,null);assert.equal(worker.carry,null);const feeder=s.addAnt('worker',mite.x,mite.y);s.setFeeder(feeder);feeder.x=mite.x;feeder.y=mite.y;s.food=10;feeder.state='idle';s.updateWorker(feeder,1.0);assert.ok(s.food>=20);assert.equal(mite.food,5);});
 test('ants satisfy hunger and thirst from food storage and water tiles without touching Queen',()=>{const s=new Simulation(1103);s.food=100;s.water=50;const worker=s.addAnt('worker',s.nest.x,s.nest.y);worker.foodNeed=5;worker.waterNeed=5;const foodSource=s.antNeedSource(worker,'food');assert.notEqual(foodSource.kind,'queen');assert.equal(foodSource.kind,'food-store');worker.task={type:'need-food',source:'needs',needSource:foodSource};s.consumeAntNeed(worker);assert.ok(worker.foodNeed>5);assert.equal(s.water,50);const waterSource=s.antNeedSource(worker,'water');assert.notEqual(waterSource.kind,'queen');assert.ok(waterSource.kind==='terrain-water'||waterSource.kind==='reservoir'||waterSource.kind==='well');});
 test('rival colony activates within 60 hexes and refreezes beyond 300 hexes',()=>{const s=new Simulation(1104),f={id:2,type:'colony',x:s.nest.x+500,y:s.nest.y,relation:'neutral'};s.world.features.push(f);Ecology.sync(s);const col=s.colonies[0];assert.ok(col);const playerAnt=s.ants.find(a=>a.colonyId===1),players=[playerAnt];playerAnt.x=s.nest.x;playerAnt.y=s.nest.y;Ecology.colonies(s,players,1);assert.equal(col.state,'dormant');playerAnt.x=col.x-50;playerAnt.y=col.y;Ecology.colonies(s,players,1);assert.equal(col.state,'active');assert.ok(s.ants.some(a=>a.colonyId===col.id&&a.type==='queen'));playerAnt.x=col.x-200;playerAnt.y=col.y;Ecology.colonies(s,players,1);assert.equal(col.state,'active');playerAnt.x=col.x-350;playerAnt.y=col.y;Ecology.colonies(s,players,1);assert.equal(col.state,'dormant');});
-test('rival colony queen survives, lays eggs, and grows population autonomously',()=>{const s=new Simulation(1105),f={id:2,type:'colony',x:s.nest.x+500,y:s.nest.y,relation:'neutral'};s.world.features.push(f);Ecology.sync(s);const col=s.colonies[0];assert.ok(col);col.state='active';const rivalQueen=s.addAnt('queen',col.x,col.y,col.id);rivalQueen.fertile=true;col.queenId=rivalQueen.id;const before=col.food;s.updateQueen(10);assert.ok(Math.abs((before-col.food)-AntGame.Config.foodDrainPerSecond*0.5*10)<0.001);col.food=AntGame.Config.eggFoodCost+10;col.water=AntGame.Config.eggWaterCost+10;rivalQueen.layTimer=0;s.updateQueen(1);assert.equal(s.eggs.filter(e=>e.colonyId===col.id).length,1);const egg=s.eggs.find(e=>e.colonyId===col.id);egg.age=egg.duration;const popBefore=s.livingPopulation(col.id);s.update(1/30);assert.equal(s.livingPopulation(col.id),popBefore+1);});
+test('rival colony queen survives, lays eggs, and grows population autonomously',()=>{const s=new Simulation(1105),f={id:2,type:'colony',x:s.nest.x+500,y:s.nest.y,relation:'neutral'};s.world.features.push(f);Ecology.sync(s);const col=s.colonies[0];assert.ok(col);col.state='active';const rivalQueen=s.addAnt('queen',col.x,col.y,col.id);rivalQueen.fertile=true;col.queenId=rivalQueen.id;const before=col.food;s.updateQueen(10);assert.ok(Math.abs((before-col.food)-AntGame.Config.foodDrainPerSecond*0.5*10)<0.001);col.food=AntGame.Config.eggFoodCost+10;col.water=AntGame.Config.eggWaterCost+10;rivalQueen.layTimer=0;s.updateQueen(1);assert.equal(s.eggs.filter(e=>e.colonyId===col.id).length,1);const egg=s.eggs.find(e=>e.colonyId===col.id);assert.equal(egg.stage,'egg');egg.age=egg.duration;s.update(1/30);assert.equal(egg.stage,'larva');egg.foodAccumulated=30;egg.age=egg.duration;s.update(1/30);assert.equal(egg.stage,'pupa');egg.age=egg.duration;const popBefore=s.livingPopulation(col.id);s.update(1/30);assert.equal(s.livingPopulation(col.id),popBefore+1);});
 test('repeated contacts within 3 hexes increment contactCount and trigger hostility',()=>{const s=new Simulation(1106),f={id:2,type:'colony',x:s.nest.x+500,y:s.nest.y,relation:'neutral'};s.world.features.push(f);Ecology.sync(s);const col=s.colonies[0];assert.ok(col);col.relation='neutral';col.tolerance=3;col.contactCount=0;col.state='active';const rival=s.addAnt('worker',col.x,col.y,col.id),player=s.ants.find(a=>a.colonyId===1);player.x=rival.x+2;player.y=rival.y;Ecology.colonies(s,[player],1);assert.equal(col.contactCount,1);assert.equal(col.relation,'neutral');Ecology.colonies(s,[player],1);assert.equal(col.contactCount,2);assert.equal(col.relation,'neutral');Ecology.colonies(s,[player],1);assert.equal(col.contactCount,3);assert.equal(col.relation,'hostile');});
 test('feeder exclusively processes whole stored corpses and seeds while normal workers do not',()=>{const s=new Simulation(1201),w=s.addAnt('worker',s.nest.x,s.nest.y);const corpse={id:'stored-corpse-test',species:'mite',x:s.nest.x+1,y:s.nest.y,alive:false,food:20,state:'dead',inStorage:true,storageColonyId:1};s.creatures.push(corpse);s.food=10;s.updateWorker(w,1.0);assert.equal(s.food,10);assert.equal(corpse.food,20);assert.equal(corpse.processingFeederId,undefined);s.setFeeder(w);w.x=corpse.x;w.y=corpse.y;s.updateWorker(w,1.0);assert.ok(s.food>=20);assert.equal(corpse.food,10);assert.equal(corpse.processingFeederId,w.id);});
 test('emergency starvation allows consuming raw corpses or stored seeds without crediting colony rations',()=>{const s=new Simulation(1202),w=s.addAnt('worker',s.nest.x,s.nest.y);s.food=0;const corpse={id:'starve-corpse-test',species:'mite',x:s.nest.x+1,y:s.nest.y,alive:false,food:60,state:'dead'};s.creatures.push(corpse);s.world.peek(corpse.x,corpse.y).discovered=true;w.foodNeed=15;assert.equal(s.antNeedSource(w,'food'),null);w.foodNeed=4;const src=s.antNeedSource(w,'food');assert.ok(src);assert.equal(src.kind,'corpse');w.task={type:'need-food',source:'needs',needSource:src};s.consumeAntNeed(w);assert.equal(w.foodNeed,50);assert.equal(corpse.food,14);assert.equal(s.food,0);});
@@ -623,4 +623,340 @@ test('starter seed site spawns starter creature pack (isopods, weevil, or mites)
   assert.ok(starterCreatures.length > 0, 'Starter seed site must spawn starter creatures');
   const sp = starterCreatures[0].species;
   assert.ok(['isopod', 'weevil', 'mite'].includes(sp), `Starter creature species was ${sp}`);
+});
+
+test('build system: AntGame.BuildTypes costs and definitions match specifications', () => {
+  const BT = AntGame.BuildTypes;
+  assert.ok(BT, 'BuildTypes must be defined');
+
+  // Food store: 3 Food, 1 Dirt
+  assert.equal(BT.food.food, 3);
+  assert.equal(BT.food.dirt, 1);
+  assert.equal(BT.food.excavations, 0);
+
+  // Water reservoir: 5 Food, 2 Dirt, 2 Excavations
+  assert.equal(BT.water.food, 5);
+  assert.equal(BT.water.dirt, 2);
+  assert.equal(BT.water.excavations, 2);
+
+  // Spoilroom: 1 Dirt
+  assert.equal(BT.spoil.food, 0);
+  assert.equal(BT.spoil.dirt, 1);
+
+  // Hatchery floor: 5 Food, 3 Dirt, solid: false
+  assert.equal(BT.hatchery_floor.food, 5);
+  assert.equal(BT.hatchery_floor.dirt, 3);
+  assert.equal(BT.hatchery_floor.solid, false);
+
+  // Hatchery wall: 5 Food, 3 Dirt, solid: true
+  assert.equal(BT.hatchery_wall.food, 5);
+  assert.equal(BT.hatchery_wall.dirt, 3);
+  assert.equal(BT.hatchery_wall.solid, true);
+
+  // Plain dirt: 1 Dirt, 0 Food
+  assert.equal(BT.dirt.food, 0);
+  assert.equal(BT.dirt.dirt, 1);
+  assert.equal(BT.dirt.solid, true);
+
+  // Rough dirt: 1 Dirt, 0 Food, solid: false
+  assert.equal(BT.rough_dirt.food, 0);
+  assert.equal(BT.rough_dirt.dirt, 1);
+  assert.equal(BT.rough_dirt.solid, false);
+
+  // Compacted dirt: 5 Dirt, 0 Food, hardness: 3.5
+  assert.equal(BT.compacted_dirt.food, 0);
+  assert.equal(BT.compacted_dirt.dirt, 5);
+  assert.equal(BT.compacted_dirt.solid, true);
+  assert.equal(BT.compacted_dirt.hardness, 3.5);
+
+  // Trench: 0 Dirt, 0 Food, 1 Excavation
+  assert.equal(BT.trench.food, 0);
+  assert.equal(BT.trench.dirt, 0);
+  assert.equal(BT.trench.excavations, 1);
+  assert.equal(BT.trench.solid, false);
+
+  // Smooth floor: 1 Food, 4 Dirt, requires trait
+  assert.equal(BT.smooth_floor.food, 1);
+  assert.equal(BT.smooth_floor.dirt, 4);
+  assert.equal(BT.smooth_floor.requiresTrait, 'smooth_floor');
+});
+
+test('build system: trench costs 0 resources, requires 1 excavation, blocks ants (clearance 1) but allows large creatures', () => {
+  const s = new Simulation(106);
+  // Find an open discovered tile
+  const tile = { x: 5, y: 5 };
+  const c = s.world.get(tile.x, tile.y);
+  c.solid = false;
+  c.discovered = true;
+  c.water = 0;
+
+  // Designate trench
+  const ok = s.designateBuild(tile.x, tile.y, null, 'trench');
+  assert.ok(ok, 'Designating trench on open tile succeeds');
+
+  const buildJob = s.jobs.find(j => j.type === 'build' && j.x === tile.x && j.y === tile.y);
+  assert.ok(buildJob, 'Trench build job exists');
+  assert.equal(buildJob.food, 0);
+  assert.equal(buildJob.dirt, 0);
+  assert.equal(buildJob.excavations, 1);
+
+  // Excavation job should be registered
+  const digJob = s.jobs.find(j => j.x === tile.x && j.y === tile.y && j.type === 'dig');
+  assert.ok(digJob, 'Excavate job created for trench');
+
+  // Complete excavation and build
+  c.excavations = 1;
+  const w = s.addAnt('worker', tile.x, tile.y, 1);
+  w.task = { id: buildJob.id, type: 'build', structure: 'trench', x: tile.x, y: tile.y, deliveredFood: 0, deliveredDirt: 0 };
+  w.state = 'building';
+  w.timer = AntGame.Config.buildSeconds;
+  AntGame.Construction.stepBuilding(s, w, 0.1);
+
+  // Cell should now be trench
+  assert.equal(c.zone, 'trench');
+  assert.equal(c.structure, 'trench');
+  assert.equal(c.solid, false);
+
+  // Check pathfinding across trench:
+  // Clearance 1 (ant) should find path blocked
+  const left = { x: tile.x - 1, y: tile.y };
+  const right = { x: tile.x + 1, y: tile.y };
+  s.world.get(left.x, left.y).solid = false;
+  s.world.get(left.x, left.y).discovered = true;
+  s.world.get(right.x, right.y).solid = false;
+  s.world.get(right.x, right.y).discovered = true;
+
+  // Clear neighbors around trench so the only direct path is through trench
+  for (const n of s.world.neighbors(tile.x, tile.y)) {
+    if (n.x !== left.x && n.x !== right.x) {
+      n.solid = true;
+    }
+  }
+
+  const antRoute = pathfind(s.world, left, right, 1);
+  // Path through trench should NOT include the trench tile for clearance 1
+  if (antRoute) {
+    assert.equal(antRoute.some(p => p.x === tile.x && p.y === tile.y), false, 'Ant path cannot cross trench');
+  }
+
+  // Clearance 2+ (e.g. creature with clearance 2) CAN step across trench
+  // Open top neighbors so clearance 2 has contiguous width
+  s.world.get(tile.x, tile.y - 1).solid = false;
+  s.world.get(tile.x, tile.y - 1).discovered = true;
+  s.world.get(left.x, left.y - 1).solid = false;
+  s.world.get(left.x, left.y - 1).discovered = true;
+  s.world.get(right.x, right.y - 1).solid = false;
+  s.world.get(right.x, right.y - 1).discovered = true;
+  s.world.revision++;
+  const largeRoute = pathfind(s.world, left, right, 2);
+  assert.ok(largeRoute !== null, 'Large creature can cross trench');
+});
+
+test('build system: plain dirt cannot be built on water >= 1.0, and fills trench back to open soil', () => {
+  const s = new Simulation(107);
+  const p = { x: 8, y: 8 };
+  const c = s.world.get(p.x, p.y);
+  c.solid = false;
+  c.discovered = true;
+  c.water = 1.5;
+
+  // Designate plain dirt on wet tile -> rejected
+  const rejected = s.designateBuild(p.x, p.y, null, 'dirt');
+  assert.equal(rejected, false, 'Plain dirt rejected on water >= 1.0');
+
+  // Drain water and turn into trench
+  c.water = 0;
+  c.zone = 'trench';
+  c.structure = 'trench';
+
+  // Designate plain dirt on trench -> accepted
+  const accepted = s.designateBuild(p.x, p.y, null, 'dirt');
+  assert.ok(accepted, 'Plain dirt on trench accepted');
+
+  const b = s.jobs.find(j => j.type === 'build' && j.x === p.x && j.y === p.y);
+  assert.ok(b, 'Build job created');
+  assert.equal(b.dirt, 1);
+
+  // Deliver dirt and complete
+  b.deliveredDirt = 1;
+  const w = s.addAnt('worker', p.x, p.y, 1);
+  w.task = { id: b.id, type: 'build', structure: 'dirt', x: p.x, y: p.y, deliveredFood: 0, deliveredDirt: 1 };
+  w.state = 'building';
+  w.timer = AntGame.Config.buildSeconds;
+  AntGame.Construction.stepBuilding(s, w, 0.1);
+
+  // Should now be open soil floor (not a solid wall)
+  assert.equal(c.solid, false, 'Filled trench becomes open floor');
+  assert.equal(c.zone, 'soil', 'Zone is soil');
+  assert.equal(c.water, 0);
+
+  // Building plain dirt on normal open floor creates a solid wall
+  const p2 = { x: 10, y: 10 };
+  const c2 = s.world.get(p2.x, p2.y);
+  c2.solid = false;
+  c2.discovered = true;
+  c2.zone = 'soil';
+  s.designateBuild(p2.x, p2.y, null, 'dirt');
+  const b2 = s.jobs.find(j => j.type === 'build' && j.x === p2.x && j.y === p2.y);
+  b2.deliveredDirt = 1;
+  w.task = { id: b2.id, type: 'build', structure: 'dirt', x: p2.x, y: p2.y, deliveredFood: 0, deliveredDirt: 1 };
+  w.state = 'building';
+  w.timer = AntGame.Config.buildSeconds;
+  AntGame.Construction.stepBuilding(s, w, 0.1);
+  assert.equal(c2.solid, true, 'Plain dirt on floor creates solid wall');
+  assert.equal(c2.hardness, 0.85);
+});
+
+test('build system: compacted dirt wall has 3.5 hardness, resists cave-in, and blocks mite routing', () => {
+  const s = new Simulation(108);
+  const p = { x: 12, y: 12 };
+  const c = s.world.get(p.x, p.y);
+  c.solid = false;
+  c.discovered = true;
+
+  // Designate compacted dirt
+  const ok = s.designateBuild(p.x, p.y, null, 'compacted_dirt');
+  assert.ok(ok, 'Designate compacted dirt succeeds');
+
+  const b = s.jobs.find(j => j.type === 'build' && j.x === p.x && j.y === p.y);
+  assert.equal(b.dirt, 5);
+
+  // Deliver all 5 dirt and complete
+  b.deliveredDirt = 5;
+  const w = s.addAnt('worker', p.x, p.y, 1);
+  w.task = { id: b.id, type: 'build', structure: 'compacted_dirt', x: p.x, y: p.y, deliveredFood: 0, deliveredDirt: 5 };
+  w.state = 'building';
+  w.timer = AntGame.Config.buildSeconds;
+  AntGame.Construction.stepBuilding(s, w, 0.1);
+
+  assert.equal(c.solid, true);
+  assert.equal(c.zone, 'compacted-dirt');
+  assert.equal(c.hardness, 3.5);
+
+  // Cave in protection test: triggerCaveIn should not collapse compacted dirt
+  const collapsed = s.triggerCaveIn('wind', p.x, p.y, 1);
+  assert.equal(collapsed, false, 'Compacted dirt resists cave in');
+
+  // Mite routing: miteRoute should reject traversing compacted dirt
+  const mite = { x: p.x - 1, y: p.y, species: 'mite' };
+  const target = { x: p.x + 1, y: p.y };
+  // Make target open
+  s.world.get(target.x, target.y).solid = false;
+  s.world.get(target.x, target.y).discovered = true;
+
+  // Block other neighbors
+  for (const n of s.world.neighbors(p.x - 1, p.y)) {
+    if (n.x !== p.x && n.y !== p.y) n.solid = true;
+  }
+
+  const route = Ecology.miteRoute(s, mite, target);
+  assert.equal(route.some(pt => pt.x === p.x && pt.y === p.y), false, 'Mite route cannot traverse compacted dirt');
+});
+
+test('build system: rough dirt inflicts 50% speed penalty on ants and creatures', () => {
+  const s = new Simulation(109);
+  const p = { x: 15, y: 15 };
+  const c = s.world.get(p.x, p.y);
+  c.solid = false;
+  c.discovered = true;
+
+  s.designateBuild(p.x, p.y, null, 'rough_dirt');
+  const b = s.jobs.find(j => j.type === 'build' && j.x === p.x && j.y === p.y);
+  b.deliveredDirt = 1;
+  const worker = s.addAnt('worker', p.x, p.y, 1);
+  worker.task = { id: b.id, type: 'build', structure: 'rough_dirt', x: p.x, y: p.y, deliveredFood: 0, deliveredDirt: 1 };
+  worker.state = 'building';
+  worker.timer = AntGame.Config.buildSeconds;
+  AntGame.Construction.stepBuilding(s, worker, 0.1);
+
+  assert.equal(c.zone, 'rough-dirt');
+
+  // Place worker on rough-dirt
+  const dest = s.world.get(p.x + 1, p.y);
+  dest.solid = false;
+  dest.discovered = true;
+
+  const w = s.addAnt('worker', p.x, p.y, 1);
+  w.path = [{ x: p.x + 1, y: p.y }];
+  w.state = 'moving';
+  const baseSpeed = w.speed * (w.colonyId === 1 ? s.effect('moveRate') : 1);
+
+  // Move ant for dt = 0.1
+  const startX = w.x;
+  s.travel(w, 0.1);
+  const distTravelled = Math.hypot(w.x - startX, w.y - p.y);
+  // Distance travelled should reflect 0.5x speed
+  const expectedDist = baseSpeed * 0.5 * 0.1;
+  assert.ok(Math.abs(distTravelled - expectedDist) < 0.01, `Expected ~${expectedDist}, got ${distTravelled}`);
+
+  // Test creature speed on rough-dirt
+  const cr = Ecology.spawnCreature(s, 'weevil', p.x, p.y);
+  cr.path = [{ x: p.x + 1, y: p.y }];
+  const crBaseSpeed = AntGame.Species.weevil.speed;
+  const crStartX = cr.x;
+  Ecology.move(cr, AntGame.Species.weevil, 0.1, s);
+  const crDist = Math.hypot(cr.x - crStartX, cr.y - p.y);
+  const crExpectedDist = crBaseSpeed * 0.5 * 0.1;
+  assert.ok(Math.abs(crDist - crExpectedDist) < 0.01, `Creature expected ~${crExpectedDist}, got ${crDist}`);
+});
+
+test('build system: smooth floor requires evolution unlock, costs 4 dirt + 1 food, and grants 1.35x speed', () => {
+  const s = new Simulation(110);
+  const p = { x: 18, y: 18 };
+  const c = s.world.get(p.x, p.y);
+  c.solid = false;
+  c.discovered = true;
+
+  // Attempt before unlocking trait -> rejected
+  const rejected = s.designateBuild(p.x, p.y, null, 'smooth_floor');
+  assert.equal(rejected, false, 'Smooth floor requires trait unlock');
+
+  // Unlock trait
+  s.traits.push('smooth_floor');
+
+  // Now designate -> accepted
+  const accepted = s.designateBuild(p.x, p.y, null, 'smooth_floor');
+  assert.ok(accepted, 'Smooth floor accepted after trait unlock');
+
+  const b = s.jobs.find(j => j.type === 'build' && j.x === p.x && j.y === p.y);
+  assert.equal(b.food, 1);
+  assert.equal(b.dirt, 4);
+
+  // Test cancellation refund (leave headroom for food)
+  s.food = 100;
+  b.deliveredFood = 1;
+  b.deliveredDirt = 2;
+  const oldFood = s.food;
+  const oldPitDirt = s.world.pit.used;
+  s.cancel(p.x, p.y);
+  assert.equal(s.food, oldFood + 1, 'Refunds delivered food');
+  assert.equal(s.world.pit.used, oldPitDirt + 2, 'Refunds delivered dirt to pit');
+
+  // Re-designate and complete
+  s.designateBuild(p.x, p.y, null, 'smooth_floor');
+  const b2 = s.jobs.find(j => j.type === 'build' && j.x === p.x && j.y === p.y);
+  b2.deliveredFood = 1;
+  b2.deliveredDirt = 4;
+  const worker = s.addAnt('worker', p.x, p.y, 1);
+  worker.task = { id: b2.id, type: 'build', structure: 'smooth_floor', x: p.x, y: p.y, deliveredFood: 1, deliveredDirt: 4 };
+  worker.state = 'building';
+  worker.timer = AntGame.Config.buildSeconds;
+  AntGame.Construction.stepBuilding(s, worker, 0.1);
+
+  assert.equal(c.zone, 'smooth-floor');
+
+  // Test +35% (1.35x) ant speed
+  const dest = s.world.get(p.x + 1, p.y);
+  dest.solid = false;
+  dest.discovered = true;
+
+  const w = s.addAnt('worker', p.x, p.y, 1);
+  w.path = [{ x: p.x + 1, y: p.y }];
+  w.state = 'moving';
+  const baseSpeed = w.speed * (w.colonyId === 1 ? s.effect('moveRate') : 1);
+  const startX = w.x;
+  s.travel(w, 0.1);
+  const dist = Math.hypot(w.x - startX, w.y - p.y);
+  const expectedDist = baseSpeed * 1.35 * 0.1;
+  assert.ok(Math.abs(dist - expectedDist) < 0.01, `Expected ~${expectedDist}, got ${dist}`);
 });

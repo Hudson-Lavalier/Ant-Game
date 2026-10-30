@@ -4,13 +4,46 @@
  * execution dispatch, destination clustering, and corridor conflict swaps.
  */
 (()=>{
-const { Config: C, key, hexDistance, hexRound, pathfind, findRoute } = AntGame;
-const dist = (a, b) => hexDistance(a, b);
+const { Config: C, key, hexDistance, hexRound, pathfind, findRoute, hexDistance3D } = AntGame;
+const dist = (a, b) => hexDistance3D ? hexDistance3D(a, b) : hexDistance(a, b);
 const isWorkerMorph = type => ['worker', 'minor', 'media', 'major', 'supermajor'].includes(type);
 
 class TaskEngine {
  static getCastePriority(sim, caste, task) {
   return sim.castePriorities?.[caste]?.[task] ?? AntGame.DefaultCastePriorities?.[caste]?.[task] ?? 5;
+ }
+
+ static getEffectivePriority(sim, a, taskType) {
+  // HIERARCHY PRECEDENCE:
+  // 1. Squad direct priority overrides (explicit custom player tuning on squad)
+  // 2. Squad role priorities (e.g. hauler, hunter, forager, guard, digger)
+  // 3. Zone priority overrides (from squad-assigned zone OR current hex tile zone)
+  // 4. Caste baseline priority (from colony operations caste matrix)
+  const squad = sim.getAntSquad ? sim.getAntSquad(a.id) : null;
+  if (squad) {
+   if (squad.priorityOverrides && squad.priorityOverrides[taskType] !== undefined) {
+    return squad.priorityOverrides[taskType];
+   }
+   const roleOverrides = AntGame.SquadRolePriorities?.[squad.role];
+   if (roleOverrides && roleOverrides[taskType] !== undefined) {
+    return roleOverrides[taskType];
+   }
+   if (squad.zoneId) {
+    const zone = sim.getZone ? sim.getZone(squad.zoneId) : null;
+    if (zone?.priorityOverrides && zone.priorityOverrides[taskType] !== undefined) {
+     return zone.priorityOverrides[taskType];
+    }
+   }
+  }
+  const hexZone = sim.world?.peek ? sim.world.peek(a.x, a.y)?.behaviorZone : null;
+  if (hexZone) {
+   const zone = sim.getZone ? sim.getZone(hexZone) : null;
+   if (zone?.priorityOverrides && zone.priorityOverrides[taskType] !== undefined) {
+    return zone.priorityOverrides[taskType];
+   }
+  }
+  const role = a.broodHelper ? 'brood_helper' : a.feeder ? 'feeder' : a.type;
+  return sim.getCastePriority(role, taskType);
  }
 
  static setCastePriority(sim, caste, task, val) {
@@ -52,34 +85,43 @@ class TaskEngine {
   return results;
  }
 
- static moveGroup(sim, units, target, queue = false) {
-  if (!units || !units.length) return null;
-  if (units.length === 1) {
-   if (queue && (units[0].path?.length || units[0].task)) {
-    units[0].orderQueue = units[0].orderQueue || [];
-    units[0].orderQueue.push({ type: 'move', point: target });
-    return null;
+  static moveGroup(sim, units, target, queue = false) {
+   if (!units || !units.length) return null;
+   const targetLayer = target.layer !== undefined ? target.layer : (units[0]?.layer || 0);
+   if (units.length === 1) {
+    const tWithLayer = target.layer !== undefined ? target : { ...target, layer: targetLayer };
+    if (queue && (units[0].path?.length || units[0].task)) {
+     units[0].orderQueue = units[0].orderQueue || [];
+     units[0].orderQueue.push({ type: 'move', point: tWithLayer });
+     return null;
+    }
+    return sim.move(units[0], tWithLayer);
    }
-   return sim.move(units[0], target);
-  }
-  const dests = this.distributeDestinations(sim.world, units.length, target);
-  let ok = false, lastErr = null;
-  for (let i = 0; i < units.length; i++) {
-   const u = units[i];
-   if (queue && (u.path?.length || u.task)) {
-    u.orderQueue = u.orderQueue || [];
-    u.orderQueue.push({ type: 'move', point: dests[i] });
-    ok = true;
-   } else {
-    const err = sim.move(u, dests[i]);
-    if (!err) ok = true; else lastErr = err;
+   const destWorld = targetLayer === 1 ? (sim.surfaceWorld || sim.world) : sim.world;
+   const dests = this.distributeDestinations(destWorld, units.length, target);
+   for (const d of dests) d.layer = targetLayer;
+   let ok = false, lastErr = null;
+   for (let i = 0; i < units.length; i++) {
+    const u = units[i];
+    if (queue && (u.path?.length || u.task)) {
+     u.orderQueue = u.orderQueue || [];
+     u.orderQueue.push({ type: 'move', point: dests[i] });
+     ok = true;
+    } else {
+     const err = sim.move(u, dests[i]);
+     if (!err) ok = true; else lastErr = err;
+    }
    }
+   return ok ? null : lastErr;
   }
-  return ok ? null : lastErr;
- }
 
  static handleCorridorConflict(sim, a, dt, currHex, nextHex) {
-  const occupant = sim.ants.find(b => b.alive && b.id !== a.id && b.type !== 'queen' && hexRound(b.x, b.y).x === nextHex.x && hexRound(b.x, b.y).y === nextHex.y);
+  const aLayer = a.layer || 0;
+  const occupant = sim.ants.find(b => {
+   if (!b.alive || b.id === a.id || b.type === 'queen' || (b.layer || 0) !== aLayer) return false;
+   const h = hexRound(b.x, b.y);
+   return h.x === nextHex.x && h.y === nextHex.y;
+  });
   if (occupant) {
    const occNext = occupant.path && occupant.path[0];
    const isHeadOn = occNext && (occNext.x === currHex.x && occNext.y === currHex.y);
@@ -131,7 +173,24 @@ class TaskEngine {
   if (chosen.type === 'combat') {
    a.task = { type: 'attack', targetId: chosen.enemy.id, source: 'auto-guard' };
    a.state = 'attack'; a.timer = 0;
-   sim.route(a, { x: Math.round(chosen.enemy.x), y: Math.round(chosen.enemy.y) }, 'attack');
+   if (AntGame.isAcrossOneTileTrench?.(sim.world, a, chosen.enemy)) {
+    a.path = [];
+   } else {
+    let targetCell = { x: Math.round(chosen.enemy.x), y: Math.round(chosen.enemy.y), layer: chosen.enemy.layer || 0 };
+    if (AntGame.HexInteractionSlots) {
+     if (!chosen.enemy.slots) {
+      const isLarge = chosen.enemy.species === 'hercules' || chosen.enemy.species === 'spider' || chosen.enemy.species === 'worm' || chosen.enemy.type === 'queen';
+      chosen.enemy.slots = new AntGame.HexInteractionSlots(chosen.enemy, isLarge ? 2 : 1);
+     }
+     const eWorld = (chosen.enemy.layer === 1 && sim.surfaceWorld) ? sim.surfaceWorld : sim.world;
+     const slot = chosen.enemy.slots.claimBestSlot(a, eWorld);
+     if (slot) {
+      a.claimedSlot = slot.slotIndex;
+      targetCell = { x: slot.targetQ ?? slot.x, y: slot.targetR ?? slot.y, layer: chosen.enemy.layer || 0 };
+     }
+    }
+    sim.route(a, targetCell, 'attack');
+   }
    return;
   }
    if (chosen.type === 'feedQueen' && chosen.source) {
@@ -175,12 +234,25 @@ class TaskEngine {
   if (chosen.type === 'carry' && chosen.target) {
    chosen.target.reservedFor = a.id;
    a.task = { type: 'carry', targetId: chosen.target.id, source: 'colony' };
-   sim.route(a, { x: Math.round(chosen.target.x), y: Math.round(chosen.target.y) }, 'to-carry');
+   sim.route(a, { x: Math.round(chosen.target.x), y: Math.round(chosen.target.y), layer: chosen.target.layer || 0 }, 'to-carry');
    return;
   }
   if (chosen.type === 'harvest' && chosen.target) {
    a.task = { type: 'harvest', targetId: chosen.target.id, source: 'colony' };
-   sim.route(a, { x: Math.round(chosen.target.x), y: Math.round(chosen.target.y) }, 'harvest');
+   let targetCell = { x: Math.round(chosen.target.x), y: Math.round(chosen.target.y), layer: chosen.target.layer || 0 };
+   if (AntGame.HexInteractionSlots) {
+    if (!chosen.target.slots) {
+     const isLarge = chosen.target.species === 'hercules' || chosen.target.species === 'spider' || chosen.target.species === 'worm' || chosen.target.type === 'queen';
+     chosen.target.slots = new AntGame.HexInteractionSlots(chosen.target, isLarge ? 2 : 1);
+    }
+    const tWorld = (chosen.target.layer === 1 && sim.surfaceWorld) ? sim.surfaceWorld : sim.world;
+    const slot = chosen.target.slots.claimBestSlot(a, tWorld);
+    if (slot) {
+     a.claimedSlot = slot.slotIndex;
+     targetCell = { x: slot.targetQ ?? slot.x, y: slot.targetR ?? slot.y, layer: chosen.target.layer || 0 };
+    }
+   }
+   sim.route(a, targetCell, 'harvest');
    return;
   }
   if (chosen.type === 'feedLarvae' && chosen.larva) {
@@ -216,6 +288,10 @@ class TaskEngine {
 
  static assign(sim, a) {
   if (!a.alive || a.held) return;
+  if (a.carry) {
+   sim.toStore(a);
+   return;
+  }
   if (a.preferred) {
    const prefJob = sim.jobs.find(j => j.id === a.preferred && j.status === 'available');
    if (prefJob) {
@@ -247,9 +323,22 @@ class TaskEngine {
   }
 
   // 3. Combat
-  if (a.actions?.combat !== false && ['soldier', 'major', 'supermajor'].includes(a.type)) {
-   const enemy = sim.creatures.find(c => c.alive && (AntGame.Species[c.species]?.behavior === 'aggressive' || c.provoked) && hexDistance(a, c) <= 6);
-   if (enemy && pathfind(sim.world, a, enemy, a.clearanceNeeded || 1) !== null) candidates.push({ type: 'combat', enemy });
+  const squad = sim.getAntSquad ? sim.getAntSquad(a.id) : null;
+  if (a.actions?.combat !== false && (['soldier', 'major', 'supermajor'].includes(a.type) || squad?.role === 'hunter' || squad?.role === 'guard')) {
+   const inHuntingZone = squad?.zoneId && sim.getZone?.(squad.zoneId)?.type === 'hunting';
+   const maxDist = inHuntingZone ? 14 : 8;
+   const enemyAnt = sim.ants.find(b => b.alive && b.colonyId !== a.colonyId && dist(a, b) <= maxDist);
+   const enemyCreature = sim.creatures.find(c => {
+    if (!c.alive) return false;
+    const isAggro = AntGame.Species[c.species]?.behavior === 'aggressive' || c.provoked;
+    const isPrey = inHuntingZone && (squad?.role === 'hunter' || ['soldier', 'major', 'supermajor'].includes(a.type)) && ['mite', 'worm', 'isopod', 'weevil', 'beetle', 'grub', 'spider'].includes(c.species);
+    if (!isAggro && !isPrey) return false;
+    if (inHuntingZone && squad.strictBounds && !sim.isHexInZone(Math.round(c.x), Math.round(c.y), squad.zoneId, c.layer || 0)) return false;
+    return dist(a, c) <= maxDist;
+   });
+   const enemy = enemyAnt || enemyCreature;
+   const reachableEnemy = enemy && (sim.canReach(a, enemy, enemy.layer || 0) || ((a.layer || 0) === 0 && (enemy.layer || 0) === 0 && (AntGame.isAcrossOneTileTrench?.(sim.world, a, enemy) || false)));
+   if (reachableEnemy) candidates.push({ type: 'combat', enemy });
   }
 
   // 4. Feed Queen
@@ -305,11 +394,14 @@ class TaskEngine {
    }
   }
 
-  // Brood Operations (Brood Helper or Feeder fallback)
+  // Brood Operations (Brood Helper or Feeder fallback; AI workers perform brood care natively)
+  const isPlayer = a.colonyId === 1;
+  const col = isPlayer ? null : sim.colonies?.find(c => c.id === a.colonyId);
+  const colFood = isPlayer ? sim.food : (col?.food || 0);
   const hasBroodHelper = sim.ants.some(b => b.alive && b.colonyId === a.colonyId && b.broodHelper);
-  const canDoBrood = a.broodHelper || (a.feeder && !hasBroodHelper);
+  const canDoBrood = a.broodHelper || (a.feeder && !hasBroodHelper) || (!isPlayer && isWorkerMorph(a.type));
 
-   if (canDoBrood && a.actions?.feedLarvae !== false && sim.food > 0) {
+   if (canDoBrood && a.actions?.feedLarvae !== false && colFood > 0) {
     const larva = sim.findHungryLarva(a);
     const foodSource = AntGame.Inventory?.getFoodSourceTile(sim, a);
     if (larva && foodSource && pathfind(sim.world, a, foodSource) !== null && pathfind(sim.world, foodSource, larva) !== null) {
@@ -342,8 +434,23 @@ class TaskEngine {
    const builds = sim.findAvailableJobs(a, 'build');
    if (builds.length) {
     const goals = new Map();
-    for (const j of builds) { const c = sim.world.peek(j.x, j.y); if (c && !c.solid) goals.set(key(c.x, c.y), { job: j, face: c }); }
-    if (goals.size && findRoute(sim.world, a, goals, a.clearanceNeeded || 1)) candidates.push({ type: 'build', jobs: builds });
+    for (const j of builds) {
+     const jLayer = j.layer !== undefined ? j.layer : (a.layer || 0);
+     const targetWorld = jLayer === 1 ? (sim.surfaceWorld || sim.world) : sim.world;
+     const c = targetWorld.peek(j.x, j.y);
+     if (!c) continue;
+     const isWater = (c.water || 0) >= 6 || c.terrain === 'water' || c.zone === 'stream' || c.zone === 'pond';
+     if (isWater || c.solid) {
+      for (const face of targetWorld.faces(c, a.colonyId === 1)) {
+       const k = key(face.x, face.y);
+       if (!goals.has(k)) goals.set(k, { job: j, face });
+      }
+     } else {
+      goals.set(key(c.x, c.y), { job: j, face: c });
+     }
+    }
+    const worldForRoute = (a.layer || 0) === 1 ? (sim.surfaceWorld || sim.world) : sim.world;
+    if (goals.size && findRoute(worldForRoute, a, goals, a.clearanceNeeded || 1)) candidates.push({ type: 'build', jobs: builds });
    }
   }
 
@@ -371,12 +478,37 @@ class TaskEngine {
    }
   }
 
-  if (!candidates.length) {
+   const isCandidateInZone = cand => {
+    if (!squad?.zoneId) return false;
+    if (cand.target) return sim.isHexInZone(Math.round(cand.target.x), Math.round(cand.target.y), squad.zoneId, cand.target.layer || 0);
+    if (cand.enemy) return sim.isHexInZone(Math.round(cand.enemy.x), Math.round(cand.enemy.y), squad.zoneId, cand.enemy.layer || 0);
+    if (cand.jobs) return cand.jobs.some(j => sim.isHexInZone(j.x, j.y, squad.zoneId, j.layer || 0));
+    if (cand.drops) return cand.drops.some(d => sim.isHexInZone(d.x, d.y, squad.zoneId, d.layer || 0));
+    return false;
+   };
+
+  let validCandidates = candidates;
+  if (squad?.strictBounds && squad?.zoneId) {
+   validCandidates = candidates.map(c => {
+    if (c.type === 'selfFeed' || c.type === 'selfWater') return c;
+    if (c.jobs) {
+     const inZoneJobs = c.jobs.filter(j => sim.isHexInZone(j.x, j.y, squad.zoneId));
+     return inZoneJobs.length ? { ...c, jobs: inZoneJobs } : null;
+    }
+    if (c.drops) {
+     const inZoneDrops = c.drops.filter(d => sim.isHexInZone(d.x, d.y, squad.zoneId));
+     return inZoneDrops.length ? { ...c, drops: inZoneDrops } : null;
+    }
+    if (isCandidateInZone(c)) return c;
+    return null;
+   }).filter(Boolean);
+  }
+
+  if (!validCandidates.length) {
    a.timer = 0.5; a.state = 'idle'; return;
   }
 
-  candidates.sort((t1, t2) => {
-   const role = a.broodHelper ? 'brood_helper' : a.feeder ? 'feeder' : a.type;
+  validCandidates.sort((t1, t2) => {
    const q = sim.queen();
    if (a.feeder && q) {
     const qDehydrated = (q.water ?? 100) <= 20;
@@ -386,15 +518,31 @@ class TaskEngine {
     if (qStarving && t1.type === 'feedQueen' && t2.type !== 'feedQueen') return -1;
     if (qStarving && t2.type === 'feedQueen' && t1.type !== 'feedQueen') return 1;
    }
-   const p1 = sim.getCastePriority(role, t1.type);
-   const p2 = sim.getCastePriority(role, t2.type);
+   if (squad?.zoneId) {
+    const in1 = isCandidateInZone(t1);
+    const in2 = isCandidateInZone(t2);
+    if (in1 && !in2) return -1;
+    if (!in1 && in2) return 1;
+   }
+   const p1 = TaskEngine.getEffectivePriority(sim, a, t1.type);
+   const p2 = TaskEngine.getEffectivePriority(sim, a, t2.type);
    if (p1 !== p2) return p1 - p2;
    const r1 = AntGame.TaskHierarchy.findIndex(th => th.id === t1.type);
    const r2 = AntGame.TaskHierarchy.findIndex(th => th.id === t2.type);
    return r1 - r2;
   });
 
-  const chosen = candidates[0];
+  const chosen = validCandidates[0];
+  if (squad?.zoneId && chosen) {
+   if (chosen.jobs && chosen.jobs.some(j => sim.isHexInZone(j.x, j.y, squad.zoneId))) {
+    const inZoneJobs = chosen.jobs.filter(j => sim.isHexInZone(j.x, j.y, squad.zoneId));
+    if (inZoneJobs.length) chosen.jobs = inZoneJobs;
+   }
+   if (chosen.drops && chosen.drops.some(d => sim.isHexInZone(d.x, d.y, squad.zoneId))) {
+    const inZoneDrops = chosen.drops.filter(d => sim.isHexInZone(d.x, d.y, squad.zoneId));
+    if (inZoneDrops.length) chosen.drops = inZoneDrops;
+   }
+  }
   sim.executeChosenTask(a, chosen);
  }
 }

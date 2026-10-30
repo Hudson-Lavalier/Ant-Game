@@ -22,6 +22,7 @@ class AudioCoordinator {
    ambient: 1.0,
    effects: 1.0
   };
+  this.currentLayer = 'underground';
   this.activeLoops = new Map();
   this.unlocked = false;
   this.lastPlayed = [];
@@ -209,6 +210,9 @@ class AudioCoordinator {
    window.addEventListener('keydown', unlock, { once: true });
   }
  }
+  onLayerChange(activeLayer) {
+   this.currentLayer = activeLayer || 'underground';
+  }
 
  enableSound(enabled) {
   this.enabled = Boolean(enabled);
@@ -339,6 +343,12 @@ class AudioCoordinator {
   const lastTime = this.lastCuePlayTime.get(resolved) || 0;
   if (now - lastTime < cooldown) return;
   this.lastCuePlayTime.set(resolved, now);
+
+  // Weather & Disaster cues: muffled distant rumble when underground
+  const isWeatherCue = ['thunder_01', 'thunder_02', 'thunder_03', 'nearThunder', 'distantThunder', 'destructiveLightning', 'flood'].includes(key) || ['thunder_01', 'thunder_02', 'thunder_03', 'flood'].includes(resolved);
+  if (isWeatherCue && this.currentLayer === 'underground') {
+   volumeScale *= 0.20;
+  }
 
   const chosenPath = this.soundPaths[resolved] || this.soundPaths[key] || key;
 
@@ -534,24 +544,26 @@ class AudioCoordinator {
   // Surface proximity: surface is y ~ -25, deep underground is y >= 0
   const camY = camera ? camera.y : 0;
   const camX = camera ? camera.x : 0;
-  // 0 when deep underground (camY >= 0), 1 when at surface (camY <= -20)
-  const surfaceProximity = Math.max(0, Math.min(1, (-camY) / 20));
+  const isSurfaceLayer = (this.currentLayer === 'surface') || (sim && sim.activeLayer === 'surface');
 
   // 1. Weather Loops
   if (climate) {
    if (climate.rainActive) {
     const intensity = climate.rainIntensity || 0.75;
-    const ugVol = (0.3 + (1 - surfaceProximity) * 0.7) * intensity;
-    const surfVol = (0.1 + surfaceProximity * 0.9) * intensity;
-    this.setLoop('rain_underground', true, { volumeScale: ugVol, bus: 'ambient' });
-    this.setLoop('rain_surface', true, { volumeScale: surfVol, bus: 'ambient' });
+    if (isSurfaceLayer) {
+     this.setLoop('rain_surface', true, { volumeScale: 1.0 * intensity, bus: 'ambient' });
+     this.setLoop('rain_underground', false);
+    } else {
+     this.setLoop('rain_surface', false);
+     this.setLoop('rain_underground', true, { volumeScale: 0.15 * intensity, bus: 'ambient' });
+    }
    } else {
     this.setLoop('rain_underground', false);
     this.setLoop('rain_surface', false);
    }
 
    if (climate.heavyWindActive) {
-    const windVol = (0.35 + surfaceProximity * 0.65) * 0.85;
+    const windVol = isSurfaceLayer ? 1.0 : 0.05;
     this.setLoop('wind', true, { volumeScale: windVol, bus: 'ambient' });
    } else {
     this.setLoop('wind', false);
@@ -559,9 +571,12 @@ class AudioCoordinator {
   }
 
   // 2. Underground Nest Ambience Loop
-  // Active underground; muffled at the surface
-  const nestVol = Math.max(0.05, (1 - surfaceProximity * 0.85) * 0.45);
-  this.setLoop('amb_nest_underground', true, { volumeScale: nestVol, bus: 'ambient' });
+  // Active underground (0.45); completely silent on the surface (0.0)
+  if (isSurfaceLayer) {
+   this.setLoop('amb_nest_underground', false);
+  } else {
+   this.setLoop('amb_nest_underground', true, { volumeScale: 0.45, bus: 'ambient' });
+  }
 
   // 3. Water Cavern Ambience Loop
   // Only plays when camera is near well tiles (c.isWell || c.zone === 'well')

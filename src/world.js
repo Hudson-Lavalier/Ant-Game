@@ -12,8 +12,17 @@
 (()=>{
 const {Config:C,hash}=AntGame,key=(q,r)=>`${q},${r}`,DIRS=[[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
 const hexDistance=(a,b={x:0,y:0})=>{const aq=a.q!==undefined?a.q:a.x,ar=a.q!==undefined?a.r:a.y,bq=b.q!==undefined?b.q:b.x,br=b.q!==undefined?b.r:b.y;return(Math.abs(aq-bq)+Math.abs(ar-br)+Math.abs(aq+ar-bq-br))/2;};
+const hexDistance3D=(a,b={x:0,y:0})=>{
+ const base=hexDistance(a,b);
+ const az=a.layer!==undefined?a.layer:(a.z!==undefined?a.z:0);
+ const bz=b.layer!==undefined?b.layer:(b.z!==undefined?b.z:0);
+ return base + (C.surfaceVerticalSeparation||10)*Math.abs(az-bz);
+};
+AntGame.hexDistance3D=hexDistance3D;
 const hexDisk=(q,r,n)=>{const out=[];for(let dq=-n;dq<=n;dq++)for(let dr=Math.max(-n,-dq-n);dr<=Math.min(n,-dq+n);dr++)out.push({x:q+dq,y:r+dr});return out;};
 const hexRound=(q,r)=>{const x=q,z=r,y=-x-z;let rx=Math.round(x),ry=Math.round(y),rz=Math.round(z),dx=Math.abs(rx-x),dy=Math.abs(ry-y),dz=Math.abs(rz-z);if(dx>dy&&dx>dz)rx=-ry-rz;else if(dy>dz)ry=-rx-rz;else rz=-rx-ry;return{x:rx,y:rz};};
+const hexLerp=(a,b,t)=>hexRound(a.x+(b.x-a.x)*t, a.y+(b.y-a.y)*t);
+const hexLine=(a,b)=>{const N=hexDistance(a,b);const out=[];for(let i=0;i<=N;i++){out.push(hexLerp(a,b,N===0?0:(i/N)));}return out;};
 class World{
  constructor(seed){this.seed=seed;this.cells=new Map();this.chunks=new Map();this.features=[];this.pits=[];this.removed=0;this.revision=0;this.activeWater=new Set();this._featureDefCache=new Map();this.founding=this.foundingLayout();this.ensureChunk(0,0);this.pit={...this.founding.spoilHole,used:0,capacity:C.spoilCapacity,hole:true};this.pits.push(this.pit);this.found();}
  inside(q,r){return hexDistance({x:q,y:r})<=C.chunkRadius;}
@@ -81,7 +90,31 @@ class World{
   return out;
  }
  rootCells(f){if(f._cachedRootCells)return f._cachedRootCells;const cells=[];for(let i=0;i<f.length;i++){cells.push({x:f.x+f.dirX*i,y:f.y+f.dirY*i});if(i>1&&i<f.length-1&&i%3===0)cells.push({x:f.x+f.dirX*i+f.dirY,y:f.y+f.dirY*i-f.dirX});}f._cachedRootCells=cells;return cells;}
- featureAt(x,y){const cx=Math.round(x/C.chunkStride),cy=Math.round(y/C.chunkStride);for(let j=cy-1;j<=cy+1;j++)for(let i=cx-1;i<=cx+1;i++)for(const f of this.featureDefinitions(i,j)){if(f.type==='root-vein'&&this.rootCells(f).some(p=>p.x===x&&p.y===y))return f;const roomRadius=f.type==='hercules-cavity'?12:f.type==='worm-cavity'?6:f.type==='spider-cavity'?5:f.r,room=hexDistance({x,y},f)<=roomRadius,tunnel=f.type==='abandoned'&&Math.abs(x-f.x)<=11&&Math.abs(y-f.y-Math.round(Math.sin((x-f.x)*.4)*2))<=1,shaft=f.type==='surface'&&Math.abs(x-f.x)<=1&&y-f.y>=-4&&y-f.y<=0;if(room||tunnel||shaft)return f;}return null;}
+  featureAt(x,y){
+   const cx=Math.round(x/C.chunkStride),cy=Math.round(y/C.chunkStride);
+   for(let j=cy-1;j<=cy+1;j++)for(let i=cx-1;i<=cx+1;i++)for(const f of this.featureDefinitions(i,j)){
+    if(f.type==='root-vein'&&this.rootCells(f).some(p=>p.x===x&&p.y===y))return f;
+    if(f.type==='water'){
+     const maxR = (f.r || 3) + 2;
+     if(Math.abs(x - f.x) <= maxR && Math.abs(y - f.y) <= maxR){
+      const d = hexDistance({x, y}, f);
+      if(d <= maxR){
+       if(f.id === 'water-start'){
+        if(d <= (f.r || 4)) return f;
+       } else {
+        const angle = Math.atan2(y - f.y, x - f.x);
+        const fSeed = hash(this.seed, f.x, f.y);
+        const radMod = 0.9 * Math.sin(3 * angle + (fSeed % 10)) + 0.5 * Math.cos(2 * angle + ((fSeed >>> 4) % 10));
+        if(d <= Math.max(2, (f.r || 3) + radMod)) return f;
+       }
+      }
+     }
+     continue;
+    }
+    const roomRadius=f.type==='hercules-cavity'?12:f.type==='worm-cavity'?6:f.type==='spider-cavity'?5:f.r,room=hexDistance({x,y},f)<=roomRadius,tunnel=f.type==='abandoned'&&Math.abs(x-f.x)<=11&&Math.abs(y-f.y-Math.round(Math.sin((x-f.x)*.4)*2))<=1,shaft=f.type==='surface'&&Math.abs(x-f.x)<=1&&y-f.y>=-4&&y-f.y<=0;if(room||tunnel||shaft)return f;
+   }
+   return null;
+  }
  generateCell(x,y){const f=this.featureAt(x,y);if(f){if(f.type==='root-vein')return{x,y,solid:true,terrain:'root',hardness:4,woodDurability:C.rootWoodDurability,discovered:false,zone:'root',root:true,feature:f.id,water:0,depth:1,excavations:0};if(f.type==='rock'){return{x,y,solid:true,terrain:'rock',hardness:2,discovered:false,zone:'rock',rock:true,feature:f.id,water:0,depth:1,excavations:0};}if(f.type==='well'){if(x===f.x&&y===f.y){return{x,y,solid:false,terrain:'water',hardness:1,discovered:false,zone:'well',isWell:true,feature:f.id,water:20,depth:1,excavations:0};}const dirX=f.dirX??1,dirY=f.dirY??0,dx=x-f.x,dy=y-f.y;let isPassage=false;for(let k=1;k<=f.r;k++){if(dx===k*dirX&&dy===k*dirY){isPassage=true;break;}}if(isPassage)return{x,y,solid:false,terrain:'soil',hardness:.85,discovered:false,zone:'passage',feature:f.id,water:0,depth:1,excavations:0};return{x,y,solid:true,terrain:'rock',hardness:2,discovered:false,zone:'rock',rock:true,feature:f.id,water:0,depth:1,excavations:0};}return{x,y,solid:false,terrain:'soil',hardness:.85+(hash(this.seed,x,y)%40)/100,discovered:false,zone:f.type,feature:f.id,water:f.type==='water'?7:0,depth:f.type==='surface'?0:1,excavations:0};}const cx=Math.round(x/C.chunkStride),cy=Math.round(y/C.chunkStride),ch=hash(this.seed+888,cx,cy);if((ch%3)===0){const clusterX=cx*C.chunkStride+((ch%21)-10),clusterY=cy*C.chunkStride+(((ch>>>5)%21)-10);if(hexDistance({x,y},{x:clusterX,y:clusterY})<=2)return{x,y,solid:true,terrain:'rock',hardness:2,discovered:false,zone:'rock',rock:true,feature:null,water:0,depth:1,excavations:0};}return{x,y,solid:true,terrain:'soil',hardness:.85+(hash(this.seed,x,y)%40)/100,discovered:false,zone:null,feature:null,water:0,depth:1,excavations:0};}
  get(x,y){x=Math.round(x);y=Math.round(y);if(!this.cells.has(key(x,y))){this.ensureChunk(Math.round(x/C.chunkStride),Math.round(y/C.chunkStride));if(!this.cells.has(key(x,y)))this.cells.set(key(x,y),this.generateCell(x,y));}return this.cells.get(key(x,y));}
  peek(x,y){return this.cells.get(key(Math.round(x),Math.round(y)));}
@@ -95,11 +128,12 @@ class World{
   for(const p of hexDisk(nest.x,nest.y,6))this.open(p.x,p.y,'nest',true);
   for(const p of hexDisk(spoil.x,spoil.y,3))this.open(p.x,p.y,'spoil',true);
   this.open(this.pit.x,this.pit.y,'pit',true);
-  let x=nest.x,y=nest.y;
-  while(x!==this.pit.x||y!==this.pit.y){
-   if(x!==this.pit.x)x+=Math.sign(this.pit.x-x);else y+=Math.sign(this.pit.y-y);
-   for(const p of hexDisk(x,y,1))if(p.x!==this.pit.x||p.y!==this.pit.y)this.open(p.x,p.y,'passage',true);
-  }
+   let x=nest.x,y=nest.y,guard=0;
+   while(x!==this.pit.x||y!==this.pit.y){
+    if(++guard>2000)throw new Error('[FREEZE_GUARD] Infinite loop detected in World.found() passage excavation');
+    if(x!==this.pit.x)x+=Math.sign(this.pit.x-x);else y+=Math.sign(this.pit.y-y);
+    for(const p of hexDisk(x,y,1))if(p.x!==this.pit.x||p.y!==this.pit.y)this.open(p.x,p.y,'passage',true);
+   }
    // Procedural Starter Hatchery: 5 floor tiles + 3-tile wide entrance into nest,
    // varying in spawn position around the nest perimeter, alcove orientation, and floor shape.
    const hHash = hash(this.seed, 953, 617);
@@ -196,7 +230,7 @@ class World{
    return [];
   }
  neighbors(x,y){return DIRS.map(([dq,dr])=>this.peek(x+dq,y+dr)).filter(Boolean);}
- faces(c,known=true){return this.neighbors(c.x,c.y).filter(n=>!n.solid&&n.water<6&&!n.waterStorage&&!n.isWell&&n.zone!=='well'&&(!known||n.discovered));}
+ faces(c,known=true){return this.neighbors(c.x,c.y).filter(n=>!n.solid&&n.water<6&&!n.waterStorage&&!n.isWell&&n.zone!=='well'&&n.zone!=='trench'&&n.structure!=='trench'&&(!known||n.discovered));}
  senseAt(x,y,r=C.revealRadius){for(const p of hexDisk(Math.round(x),Math.round(y),r)){const c=this.get(p.x,p.y);c.discovered=true;if(c.water>0)this.activeWater.add(key(c.x,c.y));if(c.zone==='pit'&&!this.pits.some(h=>h.x===c.x&&h.y===c.y))this.pits.push({x:c.x,y:c.y,used:0,capacity:C.spoilCapacity,hole:true});}}
  revealAt(x,y,r=C.revealRadius){this.senseAt(x,y,r);}
  // EXCAVATION: root is soil-like but deliberately much slower. It supplies no
@@ -231,7 +265,7 @@ function hasBodyClearance(world,x,y,width=1){
  if(width<=3)res=maxContiguousOpenNeighbors(world,x,y)>=width;
  else{
   const radius=Math.max(2,Math.ceil(width/2));
-  res=hexDisk(x,y,radius).every(p=>{const c=world.peek(p.x,p.y);return c&&!c.solid&&c.water<6&&!c.waterStorage&&!c.isWell&&c.zone!=='well';});
+  res=hexDisk(x,y,radius).every(p=>{const c=world.peek(p.x,p.y);const isHole=(c?.layer===1||world.isSurface)&&(c?.isHole||c?.terrain==='entrance'||c?.structure==='entrance_hole');return c&&!c.solid&&!isHole&&c.water<6&&!c.waterStorage&&!c.isWell&&c.zone!=='well';});
  }
  world._clearanceCache.set(ck,res);
  return res;
@@ -244,7 +278,9 @@ class FastMinHeap{
 }
 function findRoute(world,start,goals,clearanceNeeded=1){
  const sx=Math.round(start.x),sy=Math.round(start.y),sk=key(sx,sy);
- if(!world.peek(sx,sy)||world.peek(sx,sy).solid||!goals.size)return null;
+ const startCell=world.peek(sx,sy);
+ const startIsHole=(startCell?.layer===1||world.isSurface)&&(startCell?.isHole||startCell?.terrain==='entrance'||startCell?.structure==='entrance_hole');
+ if(!startCell||startCell.solid||startIsHole||!goals.size)return null;
  if(goals.has(sk))return{path:[],goal:goals.get(sk)};
  if(goals.size===1){
   const [goalKey]=goals.keys(),[tx,ty]=goalKey.split(',').map(Number);
@@ -256,12 +292,16 @@ function findRoute(world,start,goals,clearanceNeeded=1){
    const p=openSet.pop(),k=key(p.x,p.y);
    if(p.g>gScore.get(k))continue;
    if(goals.has(k)){
-    const path=[];let at=k;
-    while(parents.get(at)!==null){const[x,y]=at.split(',').map(Number);path.push({x,y});at=parents.get(at);}
+    const path=[];let at=k,pGuard=0;
+    while(parents.get(at)!==null){
+     if(++pGuard>5000)throw new Error(`[FREEZE_GUARD] Path reconstruction loop detected at ${at}`);
+     const[x,y]=at.split(',').map(Number);path.push({x,y});at=parents.get(at);
+    }
     return{path:path.reverse(),goal:goals.get(k)};
    }
    for(const n of world.neighbors(p.x,p.y)){
-    if(n.solid||n.water>=6||n.waterStorage||n.isWell||n.zone==='well')continue;
+    const isHole=(n.layer===1||world.isSurface)&&(n.isHole||n.terrain==='entrance'||n.structure==='entrance_hole');
+    if(n.solid||isHole||n.water>=6||n.waterStorage||n.isWell||n.zone==='well'||((n.zone==='trench'||n.structure==='trench')&&clearanceNeeded<2))continue;
     const nk=key(n.x,n.y),newG=p.g+1;
     if(gScore.has(nk)&&newG>=gScore.get(nk))continue;
     if(!hasBodyClearance(world,n.x,n.y,clearanceNeeded))continue;
@@ -276,13 +316,17 @@ function findRoute(world,start,goals,clearanceNeeded=1){
  for(let i=0;i<queue.length&&i<3000;i++){
   const p=queue[i],k=key(p.x,p.y);
   if(goals.has(k)){
-   const path=[];let at=k;
-   while(parents.get(at)!==null){const[x,y]=at.split(',').map(Number);path.push({x,y});at=parents.get(at);}
+   const path=[];let at=k,pGuard=0;
+   while(parents.get(at)!==null){
+    if(++pGuard>5000)throw new Error(`[FREEZE_GUARD] Path reconstruction loop detected at ${at}`);
+    const[x,y]=at.split(',').map(Number);path.push({x,y});at=parents.get(at);
+   }
    return{path:path.reverse(),goal:goals.get(k)};
   }
   for(const n of world.neighbors(p.x,p.y)){
    const nk=key(n.x,n.y);
-   if(!n.solid&&n.water<6&&!n.waterStorage&&!n.isWell&&n.zone!=='well'&&!parents.has(nk)){
+   const isHole=(n.layer===1||world.isSurface)&&(n.isHole||n.terrain==='entrance'||n.structure==='entrance_hole');
+   if(!n.solid&&!isHole&&n.water<6&&!n.waterStorage&&!n.isWell&&n.zone!=='well'&&!((n.zone==='trench'||n.structure==='trench')&&clearanceNeeded<2)&&!parents.has(nk)){
     if(!hasBodyClearance(world,n.x,n.y,clearanceNeeded))continue;
     parents.set(nk,k);
     queue.push(n);
@@ -291,6 +335,23 @@ function findRoute(world,start,goals,clearanceNeeded=1){
  }
  return null;
 }
-function pathfind(world,start,target,clearanceNeeded=1){const c=world.peek(target.x,target.y);if(c?.solid!==false||c.water>=6||c.waterStorage||c?.isWell||c?.zone==='well')return null;const antClearance=typeof start==='object'&&start?.clearanceNeeded?start.clearanceNeeded:(typeof clearanceNeeded==='number'?clearanceNeeded:1);return findRoute(world,start,new Map([[key(Math.round(target.x),Math.round(target.y)),target]]),antClearance)?.path??null;}
-Object.assign(AntGame,{World,pathfind,findRoute,key,hexDistance,hexDisk,hexRound,HEX_DIRS:DIRS,maxContiguousOpenNeighbors,hasBodyClearance});
+function isAcrossOneTileTrench(world, posA, posB){
+ if(!world||!posA||!posB)return false;
+ const ax=Math.round(posA.x),ay=Math.round(posA.y);
+ const bx=Math.round(posB.x),by=Math.round(posB.y);
+ const dist=hexDistance({x:ax,y:ay},{x:bx,y:by});
+ if(dist!==2)return false;
+ if(hexDistance(posA,posB)>2.5)return false;
+ const cellA=world.peek(ax,ay),cellB=world.peek(bx,by);
+ if(!cellA||cellA.solid||!cellB||cellB.solid)return false;
+ for(const n of world.neighbors(ax,ay)){
+  if(hexDistance(n,{x:bx,y:by})===1){
+   const mid=world.peek(n.x,n.y);
+   if(mid&&!mid.solid&&(mid.zone==='trench'||mid.structure==='trench'))return true;
+  }
+ }
+ return false;
+}
+function pathfind(world,start,target,clearanceNeeded=1){const c=world.peek(target.x,target.y);const antClearance=typeof start==='object'&&start?.clearanceNeeded?start.clearanceNeeded:(typeof clearanceNeeded==='number'?clearanceNeeded:1);const isHole=(c?.layer===1||world.isSurface)&&(c?.isHole||c?.terrain==='entrance'||c?.structure==='entrance_hole');if(c?.solid!==false||isHole||c.water>=6||c.waterStorage||c?.isWell||c?.zone==='well'||((c.zone==='trench'||c.structure==='trench')&&antClearance<2))return null;return findRoute(world,start,new Map([[key(Math.round(target.x),Math.round(target.y)),target]]),antClearance)?.path??null;}
+Object.assign(AntGame,{World,pathfind,findRoute,key,hexDistance,hexDisk,hexRound,hexLine,HEX_DIRS:DIRS,maxContiguousOpenNeighbors,hasBodyClearance,isAcrossOneTileTrench});
 })();
